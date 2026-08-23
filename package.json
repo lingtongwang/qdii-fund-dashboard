@@ -4,6 +4,6 @@
   "description": "专业级 QDII 基金投资看板系统 (Mobile-First Web App)",
   "type": "module",
   "scripts": {
-    "build": "echo 'Static assets ready.'"
+    "build": "mkdir -p public/data && cp index.html script.js style.css chart.umd.min.js public/ && cp -r data/funds.json public/data/"
   }
 }
