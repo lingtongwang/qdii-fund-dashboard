@@ -5,5 +5,8 @@
   "type": "module",
   "scripts": {
     "build": "mkdir -p public/data && cp index.html script.js style.css chart.umd.min.js public/ && cp -r data/funds.json public/data/"
+  },
+  "devDependencies": {
+    "jsdom": "^29.1.1"
   }
 }

@@ -11,9 +11,10 @@ function fmtScale(scale) {
 
 function toPctObj(rows) {
     // rows: [{name, pct(小数)}] → {labels, data(百分比数值)}
+    // 必须按占比降序排列，主权国家/核心资产排在最前
+    const sorted = [...(rows || [])].filter(r => r && r.name).sort((a, b) => (Number(b.pct) || 0) - (Number(a.pct) || 0));
     const labels = [], data = [];
-    for (const r of rows || []) {
-        if (!r || !r.name) continue;
+    for (const r of sorted) {
         labels.push(r.name);
         const val = (r.pct != null && !isNaN(r.pct)) ? Number((Number(r.pct) * 100).toFixed(2)) : 0;
         data.push(val);
