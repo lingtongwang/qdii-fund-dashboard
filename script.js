@@ -172,9 +172,25 @@ const FundRepository = {
     data: mockFundsFallback.slice(),
     _loaded: false,
     async load() {
-        // 1. 优先尝试加载静态生成的 JSON（适用于 Cloudflare Pages / Vercel / GitHub Pages 等纯静态 CDN 托管）
+        const cacheBuster = Date.now();
+        // 1. 优先请求动态 API 获取数据库最新数据
         try {
-            const cacheBuster = Math.floor(Date.now() / 300000); // 5分钟粒度缓存控制
+            const res = await fetch(`/api/funds?v=${cacheBuster}`, { headers: { 'Accept': 'application/json' } });
+            if (res.ok) {
+                const arr = await res.json();
+                if (Array.isArray(arr) && arr.length) {
+                    this.data = arr;
+                    this._loaded = true;
+                    console.log(`[FundRepository] 成功从 API 加载数据: ${arr.length} 只基金`);
+                    return this.data;
+                }
+            }
+        } catch (e) {
+            console.log('[FundRepository] 动态 API 请求失败，尝试加载静态数据:', e.message);
+        }
+
+        // 2. 纯静态 CDN 环境（如 Vercel / GitHub Pages）回退加载 data/funds.json
+        try {
             const res = await fetch(`data/funds.json?v=${cacheBuster}`, { headers: { 'Accept': 'application/json' } });
             if (res.ok) {
                 const arr = await res.json();
@@ -186,23 +202,7 @@ const FundRepository = {
                 }
             }
         } catch (e) {
-            console.log('[FundRepository] 静态数据不存在或加载失败，尝试请求动态 API:', e.message);
-        }
-
-        // 2. 回退尝试动态后端接口（适用于本地 Express 或常驻云服务器模式）
-        try {
-            const res = await fetch('/api/funds', { headers: { 'Accept': 'application/json' } });
-            if (res.ok) {
-                const arr = await res.json();
-                if (Array.isArray(arr) && arr.length) {
-                    this.data = arr;
-                    this._loaded = true;
-                    console.log(`[FundRepository] 成功从 API 加载数据: ${arr.length} 只基金`);
-                    return this.data;
-                }
-            }
-        } catch (e) {
-            console.warn('[FundRepository] 动态 API 不可用，回退至内置演示数据:', e.message);
+            console.warn('[FundRepository] 静态数据加载失败，使用内置兜底数据:', e.message);
         }
 
         return this.data;

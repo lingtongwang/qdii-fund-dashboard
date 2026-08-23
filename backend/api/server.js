@@ -15,8 +15,19 @@ getDb(); // 初始化表
 const app = express();
 app.use(express.json());
 
+// 禁用浏览器强缓存，确保用户刷新页面时立即可见最新数据与代码变更
+app.use((req, res, next) => {
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    next();
+});
+
 // 静态托管前端
-app.use(express.static(ROOT, { extensions: ['html'] }));
+app.use(express.static(ROOT, {
+    extensions: ['html'],
+    setHeaders: (res) => {
+        res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+    }
+}));
 
 // 全部基金（默认只返回保留中的基金；?all=1 含被标记"暂时不用"的基金）
 app.get('/api/funds', (req, res) => {
