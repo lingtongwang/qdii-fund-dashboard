@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-app-version="18">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>QDII Fund Dashboard - Premium</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%232563EB'/><text x='50' y='68' font-size='52' text-anchor='middle' fill='white' font-family='sans-serif' font-weight='bold'>Q</text></svg>">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css?v=18">
+    <script src="chart.umd.min.js"></script>
+</head>
+<body>
+    <div id="app">
+        <!-- Level 0: Main List Page -->
+        <div id="main-page" class="page active">
+            <header class="main-header">
+                <div class="header-bg-blur"></div>
+                <div class="header-content">
+                    <div class="logo-area">
+                        <div class="logo-title">QDII 全球配置 <span class="version-badge" id="version-badge">Pro</span></div>
+                        <div class="logo-subtitle">极速穿透 · 费率与限额智能看板</div>
+                    </div>
+                    <div class="search-bar">
+                        <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                        <input id="search-input" type="search" placeholder="搜索基金名称 / 代码 / 标的指数" autocomplete="off">
+                        <button id="search-clear" class="search-clear" aria-label="清空搜索" style="display:none;">✕</button>
+                    </div>
+                </div>
+
+                <div class="tab-scroll-container">
+                    <nav class="tab-nav" id="tab-container"></nav>
+                </div>
+                
+                <div class="pill-scroll-container" id="pill-scroll-wrap">
+                    <nav class="pill-nav" id="pill-container"></nav>
+                </div>
+
+                <div class="sort-header">
+                    <div class="sort-col" id="sort-name">产品名称</div>
+                    <div class="sort-col sortable" id="sort-limit">
+                        单日限额 <span class="sort-icon-container">↕</span>
+                    </div>
+                    <div class="sort-col sortable" id="sort-return">
+                        <span id="metric-label" class="metric-switch">近1年</span> 
+                        <span class="sort-icon-container">↕</span>
+                    </div>
+                </div>
+            </header>
+
+            <div class="fund-list" id="fund-list"></div>
+            
+            <div id="loading-spinner" class="loading-spinner"></div>
+        </div>
+
+        <!-- Level 0: Favorites Page -->
+        <div id="favorites-page" class="page">
+            <header class="main-header">
+                <div class="header-bg-blur"></div>
+                <div class="header-content">
+                    <div class="logo-area">
+                        <div class="logo-title">我的收藏</div>
+                        <div class="logo-subtitle">已关注的基金与穿透配置</div>
+                    </div>
+                </div>
+                <div class="sort-header" style="grid-template-columns: 1fr 100px;">
+                    <div class="sort-col">产品名称</div>
+                    <div class="sort-col" id="fav-list-header-label" style="justify-content: flex-end;">当前权重</div>
+                </div>
+            </header>
+
+            <div class="fund-list" id="fav-fund-list"></div>
+            
+            <div class="fav-action-bar">
+                <button class="btn-primary" id="btn-penetrate">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px;"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>
+                    穿透
+                </button>
+                <button class="btn-secondary" id="btn-compare">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px;"><rect x="3" y="3" width="7" height="18" rx="2"></rect><rect x="14" y="8" width="7" height="13" rx="2"></rect><line x1="6.5" y1="7" x2="6.5" y2="7.01"></line><line x1="17.5" y1="12" x2="17.5" y2="12.01"></line></svg>
+                    对比
+                </button>
+            </div>
+        </div>
+
+        <!-- Level 1 Search: Full-Screen Dedicated Global Search Page -->
+        <div id="search-page" class="page full-page search-page">
+            <header class="search-header glass-header">
+                <button class="back-btn" id="search-back-btn" aria-label="返回">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+                </button>
+                <div class="search-bar-wrap">
+                    <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                    <input id="global-search-input" type="search" placeholder="搜索基金名称 / 代码 / 标的指数 / 经理" autocomplete="off">
+                    <button id="global-search-clear" class="search-clear" aria-label="清空搜索" style="display:none;">✕</button>
+                </div>
+                <button class="search-confirm-btn" id="search-confirm-btn">取消</button>
+            </header>
+
+            <div class="search-body" id="search-body">
+                <!-- 1. 默认状态：热搜 + 历史 + 基金足迹 -->
+                <div id="search-default-view">
+                    <!-- 热门搜索推荐 -->
+                    <div class="search-block">
+                        <div class="search-block-title">热门搜索</div>
+                        <div class="search-chips-container" id="hot-search-chips">
+                            <span class="search-chip hot-chip" data-kw="纳斯达克100">纳斯达克100 <span class="hot-badge">热</span></span>
+                            <span class="search-chip" data-kw="标普500">标普500</span>
+                            <span class="search-chip" data-kw="半导体">半导体</span>
+                            <span class="search-chip" data-kw="黄金">黄金</span>
+                            <span class="search-chip" data-kw="日经225">日经225</span>
+                            <span class="search-chip" data-kw="德国DAX">德国DAX</span>
+                            <span class="search-chip" data-kw="全球科技">全球科技</span>
+                            <span class="search-chip" data-kw="印度">印度</span>
+                            <span class="search-chip" data-kw="医疗健康">医疗健康</span>
+                        </div>
+                    </div>
+
+                    <!-- 搜索历史 -->
+                    <div class="search-block" id="search-history-block" style="display:none;">
+                        <div class="search-block-header">
+                            <span class="search-block-title">搜索历史</span>
+                            <button class="clear-history-icon-btn" id="btn-clear-history" aria-label="清空搜索历史">
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                            </button>
+                        </div>
+                        <div class="search-chips-container" id="search-history-chips"></div>
+                    </div>
+
+                    <!-- 基金足迹 -->
+                    <div class="search-block" id="search-footprint-block" style="display:none;">
+                        <div class="search-block-header">
+                            <span class="search-block-title">基金足迹</span>
+                            <span class="search-block-sub">最近浏览</span>
+                        </div>
+                        <div class="footprint-items-list" id="search-footprint-list"></div>
+                    </div>
+                </div>
+
+                <!-- 2. 全局搜索结果列表 -->
+                <div id="search-results-view" style="display:none;">
+                    <div class="search-count-banner" id="search-count-banner">共找到 0 只相关基金</div>
+                    <div class="fund-list" id="global-search-results-list"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Level 1 Detail: Bottom Sheet Popup -->
+        <div id="bottom-sheet" class="bottom-sheet">
+            <div class="sheet-overlay" id="sheet-overlay"></div>
+            <div class="sheet-container" id="bottom-sheet-container">
+                <div class="sheet-handle-bar"><div class="sheet-handle"></div></div>
+                <button class="close-btn" id="close-sheet" aria-label="关闭">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
+                
+                <div class="sheet-header">
+                    <h2 id="sheet-fund-name">--</h2>
+                    <div class="sheet-tags">
+                        <span class="tag tag-code" id="sheet-fund-code">--</span>
+                        <span class="tag tag-risk" id="sheet-fund-risk">--</span>
+                    </div>
+                    <div class="sheet-data-asof">数据截至 <span id="sheet-data-asof">--</span></div>
+                </div>
+
+                <div class="sheet-body">
+                    <div class="action-bar-top">
+                        <button class="btn-secondary" id="btn-detailed-info">
+                            查看深度研报 
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-left:4px;"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                        </button>
+                    </div>
+
+                    <div class="premium-card">
+                        <div class="card-title">基础申购与费率</div>
+                        <div class="stats-row">
+                            <div class="stat-box">
+                                <span class="stat-label">单日限额</span>
+                                <span class="stat-value highlight-limit" id="sheet-limit-status">--</span>
+                            </div>
+                            <div class="stat-box">
+                                <span class="stat-label">申购状态</span>
+                                <span class="stat-value" id="sheet-purchase-status">--</span>
+                            </div>
+                            <div class="stat-box">
+                                <span class="stat-label">单位净值</span>
+                                <span class="stat-value" id="sheet-nav-status">--</span>
+                            </div>
+                            <div class="stat-box">
+                                <span class="stat-label">累计净值</span>
+                                <span class="stat-value" id="sheet-accnav-status">--</span>
+                            </div>
+                        </div>
+                        <div style="font-size:13px; color:var(--text-secondary); margin-top:12px;">管理费/托管费: <strong id="sheet-fee-status" style="color:var(--accent-blue);">--</strong></div>
+                    </div>
+
+                    <div class="premium-card dist-card">
+                        <div class="card-title">持仓分布</div>
+                        <div class="dist-tab-nav" id="sheet-dist-tabs">
+                            <button class="dist-tab-btn active" data-type="assets">资产分布</button>
+                            <button class="dist-tab-btn" data-type="region">地区分布</button>
+                            <button class="dist-tab-btn" data-type="industry">行业分布</button>
+                        </div>
+                        <div class="dist-asof-text">更新于 <span id="sheet-dist-asof">--</span></div>
+                        
+                        <div class="dist-chart-flex">
+                            <div class="dist-donut-wrap">
+                                <canvas id="sheetDistCanvas" class="dist-canvas"></canvas>
+                                <div class="dist-donut-center-text" id="sheetDistCenterText">资产分布</div>
+                            </div>
+                            <div class="dist-legend-list" id="sheetDistLegend"></div>
+                        </div>
+                    </div>
+
+                    <div class="premium-card">
+                        <div class="card-title">前十大持仓</div>
+                        <ul class="holdings-list" id="sheet-holdings"></ul>
+                    </div>
+                </div>
+
+                <div class="sheet-footer">
+                    <button class="btn-primary" id="btn-buy">立即跳转券商配置</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Penetrate Mode Sheet -->
+        <div id="penetrate-sheet" class="bottom-sheet">
+            <div class="sheet-overlay" id="penetrate-overlay"></div>
+            <div class="sheet-container" id="penetrate-sheet-container">
+                <div class="sheet-handle-bar"><div class="sheet-handle"></div></div>
+                <button class="close-btn" id="close-penetrate" aria-label="关闭">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
+                
+                <div class="sheet-header">
+                    <h2>选择穿透方式</h2>
+                </div>
+                <div class="sheet-body">
+                    <div class="premium-card" style="padding:16px;">
+                        <label style="display:flex; align-items:center; cursor:pointer;">
+                            <input type="radio" name="weight-mode" value="equal" checked style="margin-right:12px; transform:scale(1.2);">
+                            <span style="font-weight:600;">1:1:1 等权重穿透</span>
+                        </label>
+                        <div style="font-size:12px; color:var(--text-secondary); margin-top:4px; padding-left:24px;">每只基金权重相同，适合快速对比整体风险暴露</div>
+                    </div>
+                    <div class="premium-card" style="padding:16px; margin-top:10px;">
+                        <label style="display:flex; align-items:center; cursor:pointer;">
+                            <input type="radio" name="weight-mode" value="limit" style="margin-right:12px; transform:scale(1.2);">
+                            <span style="font-weight:600;">按申购限额穿透</span>
+                        </label>
+                        <div style="font-size:12px; color:var(--text-secondary); margin-top:4px; padding-left:24px;">权重与单日限额成正比，额度大的基金占比更高</div>
+                    </div>
+                    <div class="premium-card" style="padding:16px; margin-top:10px;">
+                        <label style="display:flex; align-items:center; cursor:pointer;">
+                            <input type="radio" name="weight-mode" value="custom" style="margin-right:12px; transform:scale(1.2);">
+                            <span style="font-weight:600;">自定义金额穿透</span>
+                        </label>
+                        <div style="font-size:12px; color:var(--text-secondary); margin-top:4px; padding-left:24px;">按实际投入金额加权，可逐只设置</div>
+                        <div id="penetrate-custom-wrap" style="display:none; margin-top:12px; border-top:1px solid var(--border-lighter); padding-top:10px;">
+                            <div class="card-title" style="font-size:13px; margin-bottom:8px;">设置每只基金投入金额</div>
+                            <div id="penetrate-custom-list"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="penetrate-sheet-footer">
+                    <button class="btn-primary" id="btn-run-penetrate">开始资产穿透分析</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Level 2 Detail: Full Page Cover (Flex Column Architecture) -->
+        <div id="full-detail-page" class="page full-page">
+            <header class="detail-header glass-header">
+                <button class="back-btn" id="back-from-detail" aria-label="返回">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+                </button>
+                <h1>基金深度研报</h1>
+            </header>
+            
+            <div class="detail-content" id="detail-content">
+                <div class="detail-section head-section">
+                    <h2 id="full-fund-name">--</h2>
+                    <div class="sheet-tags" style="margin-top:10px;">
+                        <span class="tag tag-code" id="full-fund-code">--</span>
+                        <span class="tag tag-risk" id="full-fund-risk">--</span>
+                    </div>
+                    <div class="sheet-data-asof" style="margin-top:8px;">数据截至 <span id="full-data-asof">--</span></div>
+                </div>
+
+                <div class="detail-section premium-card-section">
+                    <div class="card-title">基础申购与费率</div>
+                    <div class="stats-row">
+                        <div class="stat-box">
+                            <span class="stat-label">单日限额</span>
+                            <span class="stat-value highlight-limit" id="full-limit-status">--</span>
+                        </div>
+                        <div class="stat-box">
+                            <span class="stat-label">申购状态</span>
+                            <span class="stat-value" id="full-purchase-status">--</span>
+                        </div>
+                        <div class="stat-box">
+                            <span class="stat-label">单位净值</span>
+                            <span class="stat-value" id="full-nav-status">--</span>
+                        </div>
+                        <div class="stat-box">
+                            <span class="stat-label">累计净值</span>
+                            <span class="stat-value" id="full-accnav-status">--</span>
+                        </div>
+                    </div>
+                    <div style="font-size:13px; color:var(--text-secondary); margin-top:12px;">管理费/托管费: <strong id="full-fee-status" style="color:var(--accent-blue);">--</strong></div>
+                </div>
+
+                <div class="detail-section premium-card-section">
+                    <div class="card-title">前十大持仓</div>
+                    <ul class="holdings-list" id="full-holdings"></ul>
+                </div>
+
+                <div class="detail-section premium-card-section dist-card">
+                    <div class="card-title">持仓分布</div>
+                    <div class="dist-tab-nav" id="full-dist-tabs">
+                        <button class="dist-tab-btn active" data-type="assets">资产分布</button>
+                        <button class="dist-tab-btn" data-type="region">地区分布</button>
+                        <button class="dist-tab-btn" data-type="industry">行业分布</button>
+                    </div>
+                    <div class="dist-asof-text">更新于 <span id="full-dist-asof">--</span></div>
+                    
+                    <div class="dist-chart-flex">
+                        <div class="dist-donut-wrap">
+                            <canvas id="fullDistCanvas" class="dist-canvas"></canvas>
+                            <div class="dist-donut-center-text" id="fullDistCenterText">资产分布</div>
+                        </div>
+                        <div class="dist-legend-list" id="fullDistLegend"></div>
+                    </div>
+                    
+                    <div style="font-size:13px; color:var(--text-secondary); margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--border-lighter);">最新基金规模: <strong id="full-scale" style="color:var(--accent-blue);">--</strong></div>
+                </div>
+
+                <div class="detail-section premium-card-section">
+                    <div class="card-title">历史业绩与同类排名</div>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr><th>统计区间</th><th>回报率</th><th>同类排名</th></tr>
+                            </thead>
+                            <tbody id="full-performance"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="detail-section premium-card-section">
+                    <div class="card-title">风险指标分析</div>
+                    <div class="risk-metrics-grid">
+                        <div class="risk-metric"><span class="rm-lbl">夏普比率</span><strong class="rm-val" id="rm-sharpe">--</strong></div>
+                        <div class="risk-metric"><span class="rm-lbl">最大回撤</span><strong class="rm-val negative" id="rm-drawdown">--</strong></div>
+                        <div class="risk-metric"><span class="rm-lbl">波动率</span><strong class="rm-val" id="rm-vol">--</strong></div>
+                        <div class="risk-metric"><span class="rm-lbl">Alpha</span><strong class="rm-val" id="rm-alpha">--</strong></div>
+                        <div class="risk-metric"><span class="rm-lbl">Beta</span><strong class="rm-val" id="rm-beta">--</strong></div>
+                    </div>
+                </div>
+
+                <div class="detail-section premium-card-section" style="margin-bottom: 20px;">
+                    <div class="card-title">底层产品档案</div>
+                    <table class="profile-table">
+                        <tbody id="full-profile"></tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <footer class="detail-footer">
+                <button class="btn-primary" id="btn-buy-full">立即唤起券商 App 交易</button>
+            </footer>
+        </div>
+
+        <!-- Look-through Report Page (Flex Column Architecture) -->
+        <div id="lookthrough-report-page" class="page full-page">
+            <header class="detail-header glass-header">
+                <button class="back-btn" id="back-from-report" aria-label="返回">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+                </button>
+                <h1>资产穿透报告</h1>
+            </header>
+            
+            <div class="detail-content" id="report-content">
+                <div class="detail-section head-section">
+                    <h2>组合全局概览</h2>
+                    <div style="font-size:13px; color:var(--text-secondary); margin-top:8px;">已合并穿透分析 <strong id="report-fund-count" style="color:var(--accent-blue); font-size:16px;">0</strong> 只底层基金</div>
+                </div>
+
+                <div class="detail-section premium-card-section">
+                    <div class="card-title">资产配置结构</div>
+                    <div class="chart-container" style="height: 220px;">
+                        <canvas id="reportAssetChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="detail-section premium-card-section">
+                    <div class="card-title">区域风险暴露</div>
+                    <div class="chart-container" style="height: 250px;">
+                        <canvas id="reportRegionChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="detail-section premium-card-section">
+                    <div class="card-title">行业主线分布</div>
+                    <div class="chart-container" style="height: 240px;">
+                        <canvas id="reportIndustryChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="detail-section premium-card-section">
+                    <div class="card-title">隐形十大重仓标的</div>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr><th>标的名称</th><th>穿透权重</th></tr>
+                            </thead>
+                            <tbody id="report-holdings"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Compare Page (Flex Column Architecture) -->
+        <div id="compare-page" class="page full-page">
+            <header class="detail-header glass-header">
+                <button class="back-btn" id="back-from-compare" aria-label="返回">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+                </button>
+                <h1>基金横向对比</h1>
+            </header>
+
+            <div class="detail-content" id="compare-content">
+                <div class="detail-section head-section">
+                    <h2>核心指标对比</h2>
+                    <div style="font-size:13px; color:var(--text-secondary); margin-top:8px;">已选 <strong id="compare-fund-count" style="color:var(--accent-blue); font-size:16px;">0</strong> 只基金</div>
+                </div>
+
+                <div class="detail-section premium-card-section">
+                    <div class="card-title" style="display:flex; justify-content:space-between; align-items:center;">
+                        <span>关键指标对比</span>
+                        <span style="font-size:11px; color:var(--text-tertiary); font-weight:normal;">👈 可左右滑动查看更多基金 👉</span>
+                    </div>
+                    <div class="table-container compare-table-wrap">
+                        <table class="data-table compare-table">
+                            <thead id="compare-thead"></thead>
+                            <tbody id="compare-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="detail-section premium-card-section">
+                    <div class="card-title">区域分布对比</div>
+                    <div class="chart-container" style="height: 260px;">
+                        <canvas id="compareRegionChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="detail-section premium-card-section">
+                    <div class="card-title">行业分布对比</div>
+                    <div class="chart-container" style="height: 280px;">
+                        <canvas id="compareIndustryChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bottom Navigation -->
+        <nav class="bottom-nav" id="global-bottom-nav">
+            <div class="nav-item active" id="nav-home">
+                <div class="nav-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg></div>
+                <div class="nav-label">主页</div>
+            </div>
+            <div class="nav-item" id="nav-favorites">
+                <div class="nav-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg></div>
+                <div class="nav-label">收藏</div>
+            </div>
+        </nav>
+    </div>
+    <script src="script.js?v=18"></script>
+</body>
+</html>

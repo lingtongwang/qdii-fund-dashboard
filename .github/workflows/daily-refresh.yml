@@ -1,0 +1,39 @@
+name: QDII Fund Daily Data Refresh
+
+on:
+  schedule:
+    # 每天北京时间 19:30 (UTC 11:30) 自动抓取最新净值与限额
+    - cron: '30 11 * * 1-5'
+  workflow_dispatch: # 支持在 GitHub 页面手动点击一键运行
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Dependencies
+        run: |
+          npm install
+
+      - name: Run Daily Ingest & Quality Audit
+        run: |
+          node --experimental-sqlite backend/cli.js fetch --all
+          node --experimental-sqlite backend/enrich_post.mjs
+      - name: Export Static JSON Data
+        run: |
+          node --experimental-sqlite backend/export_static.js
+
+      - name: Commit & Push Updated Database & Static JSON
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add backend/data/fund.db* data/funds.json
+          git diff --quiet && git diff --staged --quiet || (git commit -m "chore(data): automated daily QDII fund data update" && git push)

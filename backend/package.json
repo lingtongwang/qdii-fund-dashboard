@@ -1,0 +1,20 @@
+{
+  "name": "fund_dashboard_backend",
+  "version": "1.0.0",
+  "description": "QDII 基金看板后端：东方财富免费端点采集 + 本地计算 + 季报全文抽取",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node --experimental-sqlite api/server.js",
+    "ingest": "node --experimental-sqlite cli.js fetch --all",
+    "report": "node --experimental-sqlite cli.js report --all",
+    "schedule": "node --experimental-sqlite jobs/scheduler.js",
+    "cli": "node --experimental-sqlite cli.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "node-cron": "^3.0.3",
+    "cheerio": "^1.0.0",
+    "iconv-lite": "^0.6.3"
+  }
+}
