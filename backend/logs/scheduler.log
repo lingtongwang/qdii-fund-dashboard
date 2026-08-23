@@ -1,5 +1,0 @@
-[scheduler] 已注册定时任务（TZ=Asia/Shanghai）
-  每日净值: 交易日 18:30
-  季度全量: 1/4/7/10 月 10 号 03:00
-(node:10603) ExperimentalWarning: SQLite is an experimental feature and might change at any time
-(Use `node --trace-warnings ...` to show where the warning was created)

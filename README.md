@@ -31,7 +31,7 @@ backend/
 ## 3. 启动（让看板在线）
 ### 方式 A：nohup（最简，无需额外安装）
 ```bash
-cd /Users/lingtongwang/Documents/Project/fund_dashboard
+cd fund_dashboard
 
 # 启动 API（默认端口 3000）
 nohup env TZ=Asia/Shanghai node --experimental-sqlite backend/api/server.js > backend/logs/server.log 2>&1 &
@@ -44,7 +44,7 @@ nohup env TZ=Asia/Shanghai node --experimental-sqlite backend/jobs/scheduler.js 
 ### 方式 B：pm2（推荐，崩溃自启）
 ```bash
 npm i -g pm2   # 首次需安装
-cd /Users/lingtongwang/Documents/Project/fund_dashboard
+cd fund_dashboard
 pm2 start backend/api/server.js      --name qdii-server   --node-args="--experimental-sqlite" --env TZ=Asia/Shanghai
 pm2 start backend/jobs/scheduler.js  --name qdii-scheduler --node-args="--experimental-sqlite" --env TZ=Asia/Shanghai
 pm2 save

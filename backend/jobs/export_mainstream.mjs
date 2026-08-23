@@ -2,7 +2,19 @@
 // 默认视图口径：excluded=0 AND mainstream=1 AND region_excluded=0
 import { getDb } from '../db/sqlite.js';
 import { mkdirSync } from 'node:fs';
-import ExcelJS from '/Users/lingtongwang/.workbuddy/binaries/node/workspace/node_modules/exceljs/excel.js';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const ROOT = join(__dirname, '..', '..');
+
+let ExcelJS;
+try {
+    ExcelJS = (await import('exceljs')).default;
+} catch {
+    console.error('请先运行 npm install exceljs 才能使用导出功能。');
+    process.exit(1);
+}
 
 const db = getDb();
 
@@ -20,7 +32,7 @@ const funds = db.prepare(
 ).all();
 
 // 文件名按实际数量动态命名，避免与实际行数不符
-const OUT_DIR = '/Users/lingtongwang/Documents/Project/fund_dashboard/exports';
+const OUT_DIR = join(ROOT, 'exports');
 const OUT = `${OUT_DIR}/主流基金_${funds.length}只.xlsx`;
 mkdirSync(OUT_DIR, { recursive: true });
 

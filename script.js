@@ -1244,7 +1244,7 @@ function generateCompare() {
 function renderCompareCharts(funds) {
     if (!funds || funds.length === 0) return;
 
-    // 1. 地区分布对比 (Region Comparison)
+    // 1. 地区分布对比 (Region Comparison) - 统一为横向条状图
     const regionTotals = {};
     funds.forEach(f => {
         const labels = (f.market?.labels || []).map(cleanRegionName);
@@ -1260,23 +1260,30 @@ function renderCompareCharts(funds) {
     const sortedRegions = Object.keys(regionTotals).sort((a, b) => regionTotals[b] - regionTotals[a]);
     const topRegions = sortedRegions.length > 0 ? sortedRegions.slice(0, 6) : ['暂无地区披露'];
 
+    const regionContainer = document.getElementById('compareRegionChart')?.parentElement;
+    if (regionContainer) {
+        regionContainer.style.height = Math.max(260, 50 + topRegions.length * (funds.length * 16 + 20)) + 'px';
+    }
+
     const regionDatasets = funds.map((f, i) => {
         const fLabels = (f.market?.labels || []).map(cleanRegionName);
         const fData = f.market?.data || [];
         return {
-            label: f.name.length > 7 ? f.name.slice(0, 7) + '...' : f.name,
+            label: f.name.length > 8 ? f.name.slice(0, 8) + '...' : f.name,
             data: topRegions.map(r => {
                 const idx = fLabels.indexOf(r);
                 return idx > -1 ? Number(fData[idx] || 0) : 0;
             }),
             backgroundColor: CHART_COLORS[i % CHART_COLORS.length],
             borderRadius: 4,
-            maxBarThickness: 28
+            maxBarThickness: 24,
+            categoryPercentage: 0.82,
+            barPercentage: 0.88
         };
     });
-    renderMultiBarChart('compareRegionChart', topRegions, regionDatasets, false);
+    renderMultiBarChart('compareRegionChart', topRegions, regionDatasets, true);
 
-    // 2. 行业分布对比 (Industry Comparison)
+    // 2. 行业分布对比 (Industry Comparison) - 统一为横向条状图
     const industryTotals = {};
     funds.forEach(f => {
         const labels = f.industry?.labels || [];
@@ -1292,18 +1299,25 @@ function renderCompareCharts(funds) {
     const sortedIndustries = Object.keys(industryTotals).sort((a, b) => industryTotals[b] - industryTotals[a]);
     const topIndustries = sortedIndustries.length > 0 ? sortedIndustries.slice(0, 7) : ['暂无行业披露'];
 
+    const industryContainer = document.getElementById('compareIndustryChart')?.parentElement;
+    if (industryContainer) {
+        industryContainer.style.height = Math.max(280, 50 + topIndustries.length * (funds.length * 16 + 20)) + 'px';
+    }
+
     const industryDatasets = funds.map((f, i) => {
         const fLabels = f.industry?.labels || [];
         const fData = f.industry?.data || [];
         return {
-            label: f.name.length > 7 ? f.name.slice(0, 7) + '...' : f.name,
+            label: f.name.length > 8 ? f.name.slice(0, 8) + '...' : f.name,
             data: topIndustries.map(ind => {
                 const idx = fLabels.indexOf(ind);
                 return idx > -1 ? Number(fData[idx] || 0) : 0;
             }),
             backgroundColor: CHART_COLORS[i % CHART_COLORS.length],
             borderRadius: 4,
-            maxBarThickness: 18
+            maxBarThickness: 24,
+            categoryPercentage: 0.82,
+            barPercentage: 0.88
         };
     });
     renderMultiBarChart('compareIndustryChart', topIndustries, industryDatasets, true);

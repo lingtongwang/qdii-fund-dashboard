@@ -1,4 +1,0 @@
-(node:10602) ExperimentalWarning: SQLite is an experimental feature and might change at any time
-(Use `node --trace-warnings ...` to show where the warning was created)
-[server] QDII 看板后端已启动: http://localhost:3000
-[server] 静态托管根目录: /Users/lingtongwang/Documents/Project/fund_dashboard
