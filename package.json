@@ -3,20 +3,7 @@
   "version": "1.0.0",
   "description": "专业级 QDII 基金投资看板系统 (Mobile-First Web App)",
   "type": "module",
-  "main": "backend/api/server.js",
   "scripts": {
-    "start": "node --experimental-sqlite backend/api/server.js",
-    "dev": "node --experimental-sqlite backend/api/server.js",
-    "build": "node --experimental-sqlite backend/export_static.js",
-    "export-data": "node --experimental-sqlite backend/export_static.js"
-  },
-  "dependencies": {
-    "cheerio": "^1.0.0",
-    "express": "^4.21.2",
-    "iconv-lite": "^0.6.3",
-    "node-cron": "^3.0.3"
-  },
-  "engines": {
-    "node": ">=22.5.0"
+    "build": "echo 'Static assets ready.'"
   }
 }
