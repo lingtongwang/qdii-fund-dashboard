@@ -1,0 +1,8 @@
+# Cloudflare Pages 静态资源忽略文件（防止后端数据库等大文件被作为前端静态文件上传）
+backend/
+.github/
+Dockerfile
+render.yaml
+*.md
+*.py
+*.log
