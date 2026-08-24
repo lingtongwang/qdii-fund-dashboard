@@ -25,7 +25,7 @@ jobs:
 
       - name: Run Daily Ingest & Quality Audit
         run: |
-          node --experimental-sqlite backend/cli.js fetch --all
+          node --experimental-sqlite backend/jobs/daily_fast_refresh.mjs
 
       - name: Export Static JSON Data
         run: |
