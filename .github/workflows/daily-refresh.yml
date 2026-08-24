@@ -21,12 +21,12 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          npm install --prefix backend
+          npm install
 
       - name: Run Daily Ingest & Quality Audit
         run: |
           node --experimental-sqlite backend/cli.js fetch --all
-          node --experimental-sqlite backend/enrich_post.mjs
+
       - name: Export Static JSON Data
         run: |
           node --experimental-sqlite backend/export_static.js

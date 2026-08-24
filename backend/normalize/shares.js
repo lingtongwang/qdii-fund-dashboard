@@ -5,6 +5,8 @@ function stem(n) {
     return n
         .replace(/美元现钞|美元现汇|美元|港币|人民币|RMB|欧元/g, '')
         .replace(/（.*?）|\(.*?\)/g, '')
+        .replace(/纳指/g, '纳斯达克')
+        .replace(/恒指/g, '恒生')
         .replace(/(发起式|联接|母基|指数|ETF|LOF)?\s*(A|B|C|D|E|F|H|I|O|R|Y|后端)$/i, '')
         .replace(/\s+/g, '').trim();
 }
