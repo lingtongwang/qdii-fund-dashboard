@@ -5,9 +5,10 @@
   "type": "module",
   "scripts": {
     "guard": "node --experimental-sqlite backend/qa/data_guard.mjs",
+    "verify": "node --experimental-sqlite backend/qa/dual_source_verifier.mjs",
     "export": "node --experimental-sqlite backend/export_static.js",
     "refresh": "node --experimental-sqlite backend/jobs/daily_fast_refresh.mjs",
-    "build": "node --experimental-sqlite backend/qa/data_guard.mjs && node --experimental-sqlite backend/export_static.js && mkdir -p public/data && cp index.html script.js style.css chart.umd.min.js public/ && cp -r data/funds.json public/data/"
+    "build": "node --experimental-sqlite backend/qa/dual_source_verifier.mjs && node --experimental-sqlite backend/qa/data_guard.mjs && node --experimental-sqlite backend/export_static.js && mkdir -p public/data && cp index.html script.js style.css chart.umd.min.js public/ && cp -r data/funds.json public/data/"
   },
   "devDependencies": {
     "jsdom": "^29.1.1"
