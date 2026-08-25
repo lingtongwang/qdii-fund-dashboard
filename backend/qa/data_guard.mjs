@@ -35,37 +35,8 @@ const errors = [];
 const warnings = [];
 
 // ==========================================
-// 1. 基准核心基金真实性硬断言 (Benchmark Integrity)
-// ==========================================
-const criticalBenchmarks = [
-    { code: '021778', expectedLimit: 5, expectedStatus: '暂停大额申购', name: '广发纳指100 F类' },
-    { code: '270042', expectedLimit: 5, expectedStatus: '暂停大额申购', name: '广发纳指100 A类' },
-    { code: '006479', expectedLimit: 5, expectedStatus: '暂停大额申购', name: '广发纳指100 C类' },
-    { code: '008763', expectedLimit: 100, expectedStatus: '暂停大额申购', name: '天弘越南 A类' },
-    { code: '022524', expectedLimit: 100, expectedStatus: '暂停大额申购', name: '天弘越南 D类' },
-    { code: '020712', expectedLimit: 10, expectedStatus: '暂停大额申购', name: '华安日经225联接 A类' },
-    { code: '018230', expectedLimit: 50000, expectedStatus: '暂停大额申购', name: '易方达全球优质 A类' },
-    { code: '161125', expectedLimit: 10, expectedStatus: '暂停大额申购', name: '易方达标普500 A类' },
-    { code: '161128', expectedLimit: 10, expectedStatus: '暂停大额申购', name: '易方达标普信息科技 A类' },
-    { code: '002891', expectedLimit: 200, expectedStatus: '暂停大额申购', name: '华夏移动互联' }
-];
-
-for (const b of criticalBenchmarks) {
-    const f = funds.find(x => x.code === b.code);
-    if (!f) {
-        errors.push(`[基准缺失] 核心基金 ${b.code} (${b.name}) 在数据库中未找到！`);
-        continue;
-    }
-    if (f.limit_amount !== b.expectedLimit) {
-        errors.push(`[限额异常] 核心基金 ${b.code} (${b.name}) 限额错误！期望: ${b.expectedLimit}元, 实际: ${f.limit_amount}元`);
-    }
-    if (f.purchase_status !== b.expectedStatus) {
-        errors.push(`[状态异常] 核心基金 ${b.code} (${b.name}) 状态错误！期望: ${b.expectedStatus}, 实际: ${f.purchase_status}`);
-    }
-}
-
-// ==========================================
-// 2. 同家族人民币份额限额一致性断言 (Family Share Invariants)
+// 1. 同家族人民币份额限额与状态硬一致性断言 (Dynamic Family Invariant)
+// 监管规则：同一母基金/同一QDII额度池旗下的人民币多份额（A/C/D/E/F/I），限额和状态必须完全联动一致，无论基金公司如何动态调整
 // ==========================================
 const families = {};
 for (const f of funds) {
@@ -77,14 +48,38 @@ for (const f of funds) {
 for (const [k, members] of Object.entries(families)) {
     const rmbMembers = members.filter(m => !m.name.includes('美元') && !m.name.includes('现钞') && !m.name.includes('现汇'));
     if (rmbMembers.length > 1) {
-        const restricted = rmbMembers.filter(m => m.purchase_status === '暂停大额申购' && m.limit_amount != null);
-        if (restricted.length > 1) {
-            const limits = new Set(restricted.map(m => m.limit_amount));
-            // 排除 LOF 场外 A 类与联接 C/E 类的合法监管微差，同为联接或同为主流的必须严格一致
-            if (limits.size > 1 && !k.includes('LOF') && !k.includes('石油')) {
-                errors.push(`[家族冲突] 基金家族 "${k}" 旗下人民币份额限额不一致！成员: ${restricted.map(m => `[${m.code}:${m.limit_amount}元]`).join(', ')}`);
+        const hasLof = rmbMembers.some(m => m.name.includes('LOF') || m.code.startsWith('16'));
+        
+        // 1. 状态一致性校验
+        const statuses = new Set(rmbMembers.map(m => m.purchase_status).filter(Boolean));
+        if (statuses.size > 1 && !hasLof) {
+            errors.push(`[家族状态分裂] 基金家族 "${k}" 旗下人民币份额申购状态不一致！成员: ${rmbMembers.map(m => `[${m.code}:${m.purchase_status}]`).join(', ')}`);
+        }
+
+        // 2. 限额数值一致性校验（同家族若限大额，额度必须严格相同）
+        const restrictedMembers = rmbMembers.filter(m => m.purchase_status === '暂停大额申购');
+        if (restrictedMembers.length > 1) {
+            const limits = new Set(restrictedMembers.map(m => m.limit_amount));
+            if (limits.size > 1 && !hasLof) {
+                errors.push(`[家族限额分裂] 基金家族 "${k}" 旗下人民币份额限额不一致！成员: ${restrictedMembers.map(m => `[${m.code}:${m.limit_amount == null ? '未填' : m.limit_amount + '元'}]`).join(', ')}`);
             }
         }
+    }
+}
+
+// ==========================================
+// 2. 状态与限额逻辑对称性硬断言 (Status & Limit Symmetry Invariant)
+// 业务规则：开放申购/暂停申购严禁残留限额；暂停大额申购必须有合法正数限额
+// ==========================================
+for (const f of funds) {
+    if (f.purchase_status === '开放申购' && f.limit_amount != null) {
+        errors.push(`[开放误挂限额] 基金 [${f.code}] ${f.name} 状态为开放申购，却挂着限额: ${f.limit_amount}元`);
+    }
+    if (f.purchase_status === '暂停申购' && f.limit_amount != null) {
+        errors.push(`[暂停误挂限额] 基金 [${f.code}] ${f.name} 状态为暂停申购，却挂着限额: ${f.limit_amount}元`);
+    }
+    if (f.limit_amount != null && (f.limit_amount <= 0 || isNaN(f.limit_amount) || f.limit_amount > 100000000)) {
+        errors.push(`[限额数值越界] 基金 [${f.code}] ${f.name} 限额数值异常: ${f.limit_amount}`);
     }
 }
 

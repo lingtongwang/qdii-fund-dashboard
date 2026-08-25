@@ -29,7 +29,12 @@ async function fetchLatestNavAndLimit(code) {
         if (res.ok) {
             const html = await res.text();
             
-            // 提取限额数值
+            // 1. 精确提取「交易状态」所在的 DOM 块文本
+            const mStatus = html.match(/交易状态[：:]\s*<\/span>\s*<span class="staticCell">([^<]+)<\/span>/i) ||
+                           html.match(/交易状态[：:]\s*<\/span>\s*<span class="staticCell">\s*([^<]+)\s*<span/i);
+            const statusText = mStatus ? mStatus[1].trim() : '';
+
+            // 2. 提取限额数值
             const mLimit = html.match(/单日累计购买上限\s*([\d,.]+)\s*(万)?\s*元/i) ||
                            html.match(/单日申购上限\s*([\d,.]+)\s*(万)?\s*元/i) ||
                            html.match(/单日限额\s*([\d,.]+)\s*(万)?\s*元/i) ||
@@ -44,16 +49,17 @@ async function fetchLatestNavAndLimit(code) {
                 }
             }
 
+            // 3. 基于精确状态文本判定状态
             if (!mLimit) {
-                if (html.includes('限大额') || html.includes('暂停大额')) {
+                if (statusText.includes('限大额') || statusText.includes('暂停大额')) {
                     purchaseStatus = '暂停大额申购';
-                } else if (html.includes('暂停申购') || html.includes('暂停交易')) {
+                } else if (statusText.includes('暂停申购') || statusText.includes('暂停交易')) {
                     purchaseStatus = '暂停申购';
-                } else if (html.includes('开放申购')) {
+                } else if (statusText.includes('开放申购') || statusText.includes('开放')) {
                     purchaseStatus = '开放申购';
-                } else if (html.includes('认购期')) {
+                } else if (statusText.includes('认购期') || statusText.includes('认购')) {
                     purchaseStatus = '认购期';
-                } else if (html.includes('封闭期')) {
+                } else if (statusText.includes('封闭期') || statusText.includes('封闭')) {
                     purchaseStatus = '封闭期';
                 }
             }
