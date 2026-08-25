@@ -72,11 +72,16 @@ for (const [k, members] of Object.entries(families)) {
 // 业务规则：开放申购/暂停申购严禁残留限额；暂停大额申购必须有合法正数限额
 // ==========================================
 for (const f of funds) {
+    const isUsd = f.name.includes('美元') || f.name.includes('美钞') || f.name.includes('美汇') || f.name.includes('现钞') || f.name.includes('现汇');
     if (f.purchase_status === '开放申购' && f.limit_amount != null) {
         errors.push(`[开放误挂限额] 基金 [${f.code}] ${f.name} 状态为开放申购，却挂着限额: ${f.limit_amount}元`);
     }
     if (f.purchase_status === '暂停申购' && f.limit_amount != null) {
         errors.push(`[暂停误挂限额] 基金 [${f.code}] ${f.name} 状态为暂停申购，却挂着限额: ${f.limit_amount}元`);
+    }
+    // 零容忍断言：所有人民币基金与看板展示基金，只要处于「暂停大额申购」，必须具备明确具体的正数限额数值，严禁只标模糊的「限大额」！
+    if (!isUsd && f.purchase_status === '暂停大额申购' && (f.limit_amount == null || f.limit_amount <= 0)) {
+        errors.push(`[缺失具体限额] 人民币基金 [${f.code}] ${f.name} 状态为暂停大额申购，但缺少具体的申购限额数值！`);
     }
     if (f.limit_amount != null && (f.limit_amount <= 0 || isNaN(f.limit_amount) || f.limit_amount > 100000000)) {
         errors.push(`[限额数值越界] 基金 [${f.code}] ${f.name} 限额数值异常: ${f.limit_amount}`);

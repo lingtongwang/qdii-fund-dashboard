@@ -14,22 +14,54 @@ const db = new DatabaseSync(dbPath);
 const funds = db.prepare('SELECT code, name, raw_type FROM funds ORDER BY code').all();
 console.log(`[目标清单] 全库 ${funds.length} 只基金`);
 
-const UA = { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36' };
+const UA = { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36' };
+
+// 延迟辅助函数
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+// 带智能重试的 fetch
+async function fetchWithRetry(url, options = {}, retries = 3) {
+    for (let i = 0; i < retries; i++) {
+        try {
+            const res = await fetch(url, options);
+            if (res.status === 514 || res.status === 429) {
+                await sleep(300 * (i + 1));
+                continue;
+            }
+            if (res.ok) return res;
+        } catch (e) {
+            await sleep(200 * (i + 1));
+        }
+    }
+    return null;
+}
+
+// 缓存数据库现有最新状态（用于网络抖动时非破坏性保护）
+const existingMap = new Map();
+const existingRows = db.prepare(`
+    SELECT d.code, d.purchase_status, d.limit_amount
+    FROM daily_nav d
+    WHERE d.date = (SELECT MAX(date) FROM daily_nav WHERE code = d.code)
+`).all();
+for (const r of existingRows) {
+    existingMap.set(r.code, r);
+}
 
 async function fetchLatestNavAndLimit(code) {
-    let limit = null;
-    let purchaseStatus = '开放申购';
+    const existing = existingMap.get(code);
+    let limit = existing ? existing.limit_amount : null;
+    let purchaseStatus = existing ? existing.purchase_status : '开放申购';
     let latestNav = null;
 
-    // 1. 抓取基金主页 HTML 提取限额与交易状态
+    // 1. 抓取基金主页 HTML 提取真实限额与当前交易状态
     try {
-        const res = await fetch(`https://fund.eastmoney.com/${code}.html`, { 
+        const res = await fetchWithRetry(`https://fund.eastmoney.com/${code}.html`, { 
             headers: { ...UA, 'Referer': 'https://fund.eastmoney.com/' } 
         });
-        if (res.ok) {
+        if (res) {
             const html = await res.text();
             
-            // 1. 精确提取「交易状态」所在的 DOM 块文本
+            // 1. 精确提取「交易状态」DOM
             const mStatus = html.match(/交易状态[：:]\s*<\/span>\s*<span class="staticCell">([^<]+)<\/span>/i) ||
                            html.match(/交易状态[：:]\s*<\/span>\s*<span class="staticCell">\s*([^<]+)\s*<span/i);
             const statusText = mStatus ? mStatus[1].trim() : '';
@@ -47,40 +79,36 @@ async function fetchLatestNavAndLimit(code) {
                     limit = v;
                     purchaseStatus = '暂停大额申购';
                 }
-            }
-
-            // 3. 基于精确状态文本判定状态
-            if (!mLimit) {
+            } else if (statusText) {
+                // 基于精确状态文本判定状态
                 if (statusText.includes('限大额') || statusText.includes('暂停大额')) {
                     purchaseStatus = '暂停大额申购';
                 } else if (statusText.includes('暂停申购') || statusText.includes('暂停交易')) {
                     purchaseStatus = '暂停申购';
+                    limit = null;
                 } else if (statusText.includes('开放申购') || statusText.includes('开放')) {
                     purchaseStatus = '开放申购';
+                    limit = null;
                 } else if (statusText.includes('认购期') || statusText.includes('认购')) {
                     purchaseStatus = '认购期';
+                    limit = null;
                 } else if (statusText.includes('封闭期') || statusText.includes('封闭')) {
                     purchaseStatus = '封闭期';
+                    limit = null;
                 }
             }
         }
     } catch (e) {}
 
-    // 2. 抓取 lsjz 官方最新交易日净值数据（仅提取日期、净值、涨跌幅，不覆盖主页的限额与限大额状态）
+    // 2. 抓取 lsjz 官方最新交易日净值
     try {
-        const res2 = await fetch(`https://api.fund.eastmoney.com/f10/lsjz?fundCode=${code}&pageIndex=1&pageSize=1`, {
+        const res2 = await fetchWithRetry(`https://api.fund.eastmoney.com/f10/lsjz?fundCode=${code}&pageIndex=1&pageSize=1`, {
             headers: { ...UA, 'Referer': 'https://fundf10.eastmoney.com/' }
         });
-        if (res2.ok) {
+        if (res2) {
             const json2 = await res2.json();
             const latest = json2?.Data?.LSJZList?.[0];
             if (latest) {
-                // 若主页未识别到状态，才以 lsjz SGZT 兜底
-                if (!purchaseStatus || purchaseStatus === '开放申购') {
-                    if (latest.SGZT && (latest.SGZT.includes('暂停') || latest.SGZT.includes('大额'))) {
-                        purchaseStatus = latest.SGZT.includes('大额') ? '暂停大额申购' : '暂停申购';
-                    }
-                }
                 latestNav = {
                     date: latest.FSRQ,
                     nav: latest.DWJZ ? parseFloat(latest.DWJZ) : null,
@@ -95,7 +123,7 @@ async function fetchLatestNavAndLimit(code) {
 }
 
 const startTime = Date.now();
-const BATCH_SIZE = 30;
+const BATCH_SIZE = 8;
 const crawledResults = new Map();
 
 for (let i = 0; i < funds.length; i += BATCH_SIZE) {
@@ -106,6 +134,7 @@ for (let i = 0; i < funds.length; i += BATCH_SIZE) {
         crawledResults.set(r.code, r);
     }
     process.stdout.write(`\r[进度] 并发抓取: ${Math.min(i + BATCH_SIZE, funds.length)} / ${funds.length}...`);
+    await sleep(40);
 }
 console.log(`\n✅ 抓取完毕，耗时 ${((Date.now() - startTime) / 1000).toFixed(2)}s`);
 
@@ -134,7 +163,7 @@ for (const [k, members] of Object.entries(families)) {
         let finalStatus = m.purchaseStatus;
 
         if (validCanonical && !m.name.includes('美元') && !m.name.includes('现钞') && !m.name.includes('现汇')) {
-            if (isFamilyRestricted && finalLimit == null) {
+            if (isFamilyRestricted && (finalLimit == null || finalLimit <= 0)) {
                 finalLimit = validCanonical.limit;
                 finalStatus = '暂停大额申购';
             }
