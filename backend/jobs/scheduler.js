@@ -67,15 +67,13 @@ cron.schedule('30 18 * * 1-5', async () => {
     catch (e) { console.error('[cron] 每日任务失败', e.message); }
 }, { timezone: 'Asia/Shanghai' });
 
-// 季度全量刷新（不含季报正文行业/区域，避免封禁与口径污染）
-cron.schedule('0 3 10 1,4,7,10 *', async () => {
-    console.log('[cron] 季度全量任务启动', new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }));
+// 季度全量刷新（以证监会法定披露系统官方 PDF 原件为最高黄金真值）
+cron.schedule('0 3 20 1,4,7,10 *', async () => {
+    console.log('[cron] 季度官方 PDF 黄金真值更新任务启动', new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }));
     try {
         await ingestAll(FUNDS, { withReport: false });
-        // 季度末自动补录行业/区域（best-effort，续跑至完成；脚本支持断点续跑）
-        console.log('[cron] 季度任务：开始补录行业/区域（晨星+东财HYPZ）');
-        await runReportScript('report_industry.mjs');
-        await runReportScript('report_morningstar.mjs');
+        console.log('[cron] 季度任务：开始全量拉取并解析官方季报 PDF 原文...');
+        await runReportScript('quarterly_refresh.mjs');
         const h = await checkHealth();
         console.log(`[cron] 季度监控: 净值最新 ${h.lastNav}` + (h.alerts.length ? ' ⚠️ ' + h.alerts.join('; ') : ' ✅'));
     }
