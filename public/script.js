@@ -173,38 +173,49 @@ const FundRepository = {
     _loaded: false,
     async load() {
         const cacheBuster = Date.now();
-        // 1. 优先请求动态 API 获取数据库最新数据
+        const headers = { 
+            'Accept': 'application/json',
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache'
+        };
+
+        // 1. 尝试动态 API 请求
         try {
-            const res = await fetch(`/api/funds?v=${cacheBuster}`, { headers: { 'Accept': 'application/json' } });
+            const res = await fetch(`/api/funds?v=${cacheBuster}`, { headers });
             if (res.ok) {
                 const arr = await res.json();
                 if (Array.isArray(arr) && arr.length) {
                     this.data = arr;
                     this._loaded = true;
-                    console.log(`[FundRepository] 成功从 API 加载数据: ${arr.length} 只基金`);
+                    console.log(`[FundRepository] 成功从动态 API 加载最新数据: ${arr.length} 只基金`);
                     return this.data;
                 }
             }
-        } catch (e) {
-            console.log('[FundRepository] 动态 API 请求失败，尝试加载静态数据:', e.message);
-        }
+        } catch (e) {}
 
-        // 2. 纯静态 CDN 环境（如 Vercel / GitHub Pages）回退加载 data/funds.json
-        try {
-            const res = await fetch(`data/funds.json?v=${cacheBuster}`, { headers: { 'Accept': 'application/json' } });
-            if (res.ok) {
-                const arr = await res.json();
-                if (Array.isArray(arr) && arr.length) {
-                    this.data = arr;
-                    this._loaded = true;
-                    console.log(`[FundRepository] 成功加载静态数据: ${arr.length} 只基金`);
-                    return this.data;
+        // 2. 尝试多路径纯静态 CDN 环境（支持 GitHub Pages、Vercel、相对根路径）
+        const staticUrls = [
+            `./data/funds.json?v=${cacheBuster}`,
+            `data/funds.json?v=${cacheBuster}`,
+            `/data/funds.json?v=${cacheBuster}`
+        ];
+
+        for (const url of staticUrls) {
+            try {
+                const res = await fetch(url, { headers });
+                if (res.ok) {
+                    const arr = await res.json();
+                    if (Array.isArray(arr) && arr.length) {
+                        this.data = arr;
+                        this._loaded = true;
+                        console.log(`[FundRepository] 成功从静态源 [${url}] 加载最新数据: ${arr.length} 只基金`);
+                        return this.data;
+                    }
                 }
-            }
-        } catch (e) {
-            console.warn('[FundRepository] 静态数据加载失败，使用内置兜底数据:', e.message);
+            } catch (e) {}
         }
 
+        console.warn('[FundRepository] 所有数据源加载失败，使用内置兜底数据');
         return this.data;
     },
     get loaded() { return this._loaded; },

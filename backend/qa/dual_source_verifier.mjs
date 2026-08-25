@@ -86,25 +86,31 @@ for (const f of funds) {
         continue;
     }
 
-    // 1. 比对净值误差 (容差 < 0.0002)
-    const navDiff = Math.abs(f.nav - tx.nav);
-    if (navDiff > 0.0002) {
-        discrepancies.push({
-            code: f.code,
-            name: f.name,
-            reason: `最新净值不一致！信源A(东财)=${f.nav}, 信源B(腾讯)=${tx.nav}, 差异=${navDiff.toFixed(4)}`
-        });
-        continue;
-    }
-
-    // 2. 比对净值日期
-    if (f.nav_date && tx.date && f.nav_date !== tx.date) {
-        discrepancies.push({
-            code: f.code,
-            name: f.name,
-            reason: `净值更新日期不一致！信源A(东财)=${f.nav_date}, 信源B(腾讯)=${tx.date}`
-        });
-        continue;
+    // 1. 若两端日期完全一致，直接高精度比对净值 (容差 < 0.0002)
+    if (f.nav_date === tx.date) {
+        const navDiff = Math.abs(f.nav - tx.nav);
+        if (navDiff > 0.0002) {
+            discrepancies.push({
+                code: f.code,
+                name: f.name,
+                reason: `同日最新净值不一致！日期=${f.nav_date}, 信源A(东财)=${f.nav}, 信源B(腾讯)=${tx.nav}, 差异=${navDiff.toFixed(4)}`
+            });
+            continue;
+        }
+    } else {
+        // 2. 若两端处于夜间发榜时差窗口（东财先发或腾讯先发），查询数据库同日历史净值进行背对背核验
+        const histNav = db.prepare('SELECT nav FROM daily_nav WHERE code=? AND date=?').get(f.code, tx.date);
+        if (histNav && histNav.nav != null) {
+            const histDiff = Math.abs(histNav.nav - tx.nav);
+            if (histDiff > 0.0002) {
+                discrepancies.push({
+                    code: f.code,
+                    name: f.name,
+                    reason: `跨期对应日净值不一致！日期=${tx.date}, 数据库=${histNav.nav}, 腾讯=${tx.nav}, 差异=${histDiff.toFixed(4)}`
+                });
+                continue;
+            }
+        }
     }
 
     passedCount++;
