@@ -110,18 +110,15 @@ export async function fetchJbgk(code) {
     try {
         const url = `https://fundf10.eastmoney.com/jbgk_${code}.html`;
         const html = await getString(url, { referer: 'https://fundf10.eastmoney.com/', headers: UA });
-        const { load } = await import('cheerio');
-        const $ = load(html);
         const info = {};
-        $('table.info tr').each((_, el) => {
-            const ths = $(el).find('th');
-            const tds = $(el).find('td');
-            ths.each((j, th) => {
-                const key = $(th).text().trim();
-                const val = $(tds[j]).text().trim();
-                if (key && val) info[key] = val;
+        const rows = (html || '').matchAll(/<tr[^>]*>(.*?)<\/tr>/gis);
+        for (const row of rows) {
+            const ths = [...row[1].matchAll(/<th[^>]*>(.*?)<\/th>/gis)].map(m => m[1].replace(/<[^>]+>/g, '').trim());
+            const tds = [...row[1].matchAll(/<td[^>]*>(.*?)<\/td>/gis)].map(m => m[1].replace(/<[^>]+>/g, '').trim());
+            ths.forEach((k, j) => {
+                if (k && tds[j]) info[k] = tds[j];
             });
-        });
+        }
         return {
             fullName: info['基金全称'] || null,
             shortName: info['基金简称'] || null,
@@ -171,38 +168,36 @@ export async function fetchHoldings(code) {
     const m = text.match(/content\s*:\s*"(?:[^"\\]|\\.)*"/);
     if (!m) return { rows: [], reportDate: null };
     const html = m[0].slice(m[0].indexOf('"') + 1, -1).replace(/\\"/g, '"').replace(/\\r|\\n|\\t/g, '');
-    const { load } = await import('cheerio');
-    const $ = load(html);
-    // 取第一个 boxitem（最新报告期）内的表格
-    const boxitem = $('.boxitem').first();
-    const table = boxitem.find('table').first();
-    if (!table.length) return { rows: [], reportDate: null };
-    // 报告期：第一个 boxitem 内最新的日期（格式 2026-06-30 或 2026年06月30日）
-    const boxText = boxitem.text();
-    const dates = [...boxText.matchAll(/(20\d{2})[-年.](\d{1,2})[-月.](\d{1,2})/g)]
+    
+    // 提取报告期
+    const dates = [...html.matchAll(/(20\d{2})[-年.](\d{1,2})[-月.](\d{1,2})/g)]
         .map(x => `${x[1]}-${x[2].padStart(2, '0')}-${x[3].padStart(2, '0')}`);
     const reportDate = dates.length ? dates.sort().pop() : null;
-    // 按表头动态定位「名称」列与「占净值比例」列，兼容股票/债券/基金持仓
-    const headerCells = table.find('tr').first().find('th,td');
-    let nameCol = -1, pctCol = -1;
-    headerCells.each((i, el) => {
-        const txt = $(el).text().trim();
-        if (nameCol < 0 && /名称/.test(txt)) nameCol = i;
-        if (pctCol < 0 && /占净值比例/.test(txt)) pctCol = i;
-    });
+
+    // 提取第一张表格
+    const tableMatch = html.match(/<table[^>]*>(.*?)<\/table>/is);
+    if (!tableMatch) return { rows: [], reportDate: null };
+
+    const trs = [...tableMatch[1].matchAll(/<tr[^>]*>(.*?)<\/tr>/gis)];
+    if (!trs.length) return { rows: [], reportDate: null };
+
+    const headerCells = [...trs[0][1].matchAll(/<t[hd][^>]*>(.*?)<\/t[hd]>/gis)].map(m => m[1].replace(/<[^>]+>/g, '').trim());
+    let nameCol = headerCells.findIndex(txt => /名称/.test(txt));
+    let pctCol = headerCells.findIndex(txt => /占净值比例/.test(txt));
     if (nameCol < 0) nameCol = 2; // 兜底
     if (pctCol < 0) pctCol = 6;
+
     const rows = [];
-    table.find('tr').each((_, tr) => {
-        const tds = $(tr).find('td');
-        if (tds.length <= nameCol) return; // 跳过表头行
-        const name = $(tds[nameCol]).text().trim();
-        const pctText = $(tds[pctCol]).text().trim();
+    for (let i = 1; i < trs.length; i++) {
+        const tds = [...trs[i][1].matchAll(/<td[^>]*>(.*?)<\/td>/gis)].map(m => m[1].replace(/<[^>]+>/g, '').trim());
+        if (tds.length <= nameCol) continue;
+        const name = tds[nameCol];
+        const pctText = tds[pctCol] || '';
         const pct = parseFloat(pctText.replace('%', ''));
         if (name && !isNaN(pct)) {
             rows.push({ rank: rows.length + 1, name, pct });
         }
-    });
+    }
     return { rows: rows.slice(0, 10), reportDate };
 }
 
@@ -251,39 +246,26 @@ export async function fetchZcpzAssetAlloc(code) {
     try {
         const url = `https://fundf10.eastmoney.com/zcpz_${code}.html`;
         const html = await getString(url, { referer: 'https://fundf10.eastmoney.com/', headers: UA });
-        const { load } = await import('cheerio');
-        const $ = load(html);
+        const tables = [...(html || '').matchAll(/<table[^>]*>(.*?)<\/table>/gis)];
+        const targetTable = tables.find(t => t[1].includes('股票占净比') || t[1].includes('现金占净比'));
+        if (!targetTable) return [];
 
-        const table = $('table').filter((i, el) => $(el).text().includes('股票占净比') || $(el).text().includes('现金占净比')).first();
-        if (!table.length) return [];
+        const trs = [...targetTable[1].matchAll(/<tr[^>]*>(.*?)<\/tr>/gis)];
+        if (trs.length < 2) return [];
 
-        const colNames = [];
-        const headerRow = table.find('thead tr').first().length ? table.find('thead tr').first() : table.find('tr').first();
-        headerRow.find('th, td').each((i, el) => {
-            let txt = $(el).text().trim();
-            txt = txt.replace(/占净比|占净值比|占资产比/g, '');
-            colNames.push(txt);
-        });
+        const headerCols = [...trs[0][1].matchAll(/<t[hd][^>]*>(.*?)<\/t[hd]>/gis)]
+            .map(m => m[1].replace(/<[^>]+>/g, '').replace(/占净比|占净值比|占资产比/g, '').trim());
 
-        const dataRows = table.find('tbody tr').length ? table.find('tbody tr') : table.find('tr').slice(1);
-        let targetRow = null;
-        dataRows.each((i, el) => {
-            if (!targetRow && $(el).find('td').length >= 3) {
-                targetRow = $(el);
-            }
-        });
-        if (!targetRow) return [];
+        const dataCells = [...trs[1][1].matchAll(/<td[^>]*>(.*?)<\/td>/gis)]
+            .map(m => m[1].replace(/<[^>]+>/g, '').trim());
 
-        const cells = [];
-        targetRow.find('td').each((i, el) => cells.push($(el).text().trim()));
-
-        const reportDate = cells[0]?.match(/\d{4}[-年.]\d{1,2}[-月.]\d{1,2}/)?.[0]?.replace(/[年月]/g, '-').replace(/日/g, '') || null;
+        const reportDate = dataCells[0]?.match(/\d{4}[-年.]\d{1,2}[-月.]\d{1,2}/)?.[0]?.replace(/[年月]/g, '-').replace(/日/g, '') || null;
 
         const result = [];
-        for (let i = 1; i < colNames.length && i < cells.length; i++) {
-            const name = colNames[i];
+        for (let i = 1; i < headerCols.length && i < dataCells.length; i++) {
+            const name = headerCols[i];
             if (name.includes('净资产') || name.includes('报告期')) continue;
-            const valStr = cells[i];
+            const valStr = dataCells[i];
             if (!valStr || valStr === '---' || valStr === '--') continue;
             const num = parseFloat(valStr.replace(/,/g, '').replace(/%/g, ''));
             if (!isNaN(num) && num > 0) {

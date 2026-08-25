@@ -1,26 +1,27 @@
-// 季报适配器：发现 art_code（解析基金主页 HTML，纯 HTTP + cheerio）+ 取内容接口全文文本抽取行业/区域
+// 季报适配器：发现 art_code（解析基金主页 HTML，纯原生 HTTP）+ 取内容接口全文文本抽取行业/区域
 import { getString, getJson } from '../lib/http.js';
-import { load } from 'cheerio';
 
 const UA = { 'User-Agent': 'Mozilla/5.0' };
 
-// ① 解析基金主页，发现最新公告里的 art_code（AN...）—— 同时抓取链接文本（公告标题），便于本地先做标题过滤，减少内容请求
+// ① 解析基金主页，发现最新公告里的 art_code（AN...）
 export async function discoverArtCode(code) {
     const url = `https://fund.eastmoney.com/${code}.html`;
     const html = await getString(url, { referer: 'https://fund.eastmoney.com/', headers: UA });
-    const $ = load(html);
     const items = [];
-    $('a[href]').each((_, el) => {
-        const href = $(el).attr('href') || '';
-        const m = href.match(/AN(\d{15,})/);
-        if (m) {
-            const title = ($(el).text() || '').replace(/\s+/g, ' ').trim();
-            if (!items.find(i => i.artCode === m[1])) items.push({ artCode: m[1], title });
+    
+    // 原生解析所有 a 标签
+    const linkMatches = (html || '').matchAll(/<a\s+[^>]*href=["']([^"']*)["'][^>]*>(.*?)<\/a>/gis);
+    for (const m of linkMatches) {
+        const href = m[1] || '';
+        const mArt = href.match(/AN(\d{15,})/);
+        if (mArt) {
+            const title = (m[2] || '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+            if (!items.find(i => i.artCode === mArt[1])) items.push({ artCode: mArt[1], title });
         }
-    });
+    }
     // 兜底：正则直接扫 HTML（无名）
     if (!items.length) {
-        const all = html.match(/AN\d{15,}/g) || [];
+        const all = (html || '').match(/AN\d{15,}/g) || [];
         all.forEach(c => {
             const id = c.replace('AN', '');
             if (!items.find(i => i.artCode === id)) items.push({ artCode: id, title: '' });
