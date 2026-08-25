@@ -27,9 +27,8 @@ jobs:
         run: |
           node --experimental-sqlite backend/jobs/daily_fast_refresh.mjs
 
-      - name: Export Static JSON Data
+      - name: Build & Verify Static Distribution
         run: |
-          node --experimental-sqlite backend/export_static.js
           npm run build
 
       - name: Commit & Push Updated Database & Static JSON
