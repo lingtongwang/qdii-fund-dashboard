@@ -26,6 +26,9 @@ exports/
 *.swp
 *.bak
 
+# 本地官方 PDF 报告归档目录（大文件本地缓存）
+backend/data/reports_pdf/
+
 # SQLite 临时与断点文件
 *.db-wal
 *.db-shm
