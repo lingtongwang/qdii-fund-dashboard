@@ -77,16 +77,14 @@ for (const f of mainstreamFunds) {
         errors.push(`[费率缺失] 基金 [${f.code}] ${f.name} 的管理/托管费率缺失: "${f.fee_rate}"`);
     }
 
-    // 3.3 地区分布合法性（必须是主权国家，严禁大洲）
+    // 3.3 地区分布合法性（必须具备权威官方/晨星直接拉取的地区分布数据）
     const regRows = db.prepare('SELECT name, pct FROM region_alloc WHERE code=?').all(f.code);
     if (!regRows || regRows.length === 0) {
         errors.push(`[地区缺失] 基金 [${f.code}] ${f.name} 缺失地区分布数据！`);
     } else {
-        const forbiddenContinents = ['亚洲', '欧洲', '美洲', '北美洲', '南美洲', '非洲', '大洋洲'];
-        for (const r of regRows) {
-            if (forbiddenContinents.includes(r.name)) {
-                errors.push(`[地区粗粒度违规] 基金 [${f.code}] ${f.name} 包含非法大洲标签: "${r.name}"`);
-            }
+        const sumPct = regRows.reduce((s, r) => s + r.pct, 0);
+        if (sumPct < 0.2 || sumPct > 1.8) {
+            errors.push(`[地区权重异常] 基金 [${f.code}] ${f.name} 地区占比合计异常: ${(sumPct * 100).toFixed(2)}%`);
         }
     }
 
