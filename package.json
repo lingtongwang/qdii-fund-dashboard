@@ -4,7 +4,10 @@
   "description": "专业级 QDII 基金投资看板系统 (Mobile-First Web App)",
   "type": "module",
   "scripts": {
-    "build": "mkdir -p public/data && cp index.html script.js style.css chart.umd.min.js public/ && cp -r data/funds.json public/data/"
+    "guard": "node --experimental-sqlite backend/qa/data_guard.mjs",
+    "export": "node --experimental-sqlite backend/export_static.js",
+    "refresh": "node --experimental-sqlite backend/jobs/daily_fast_refresh.mjs",
+    "build": "node --experimental-sqlite backend/qa/data_guard.mjs && node --experimental-sqlite backend/export_static.js && mkdir -p public/data && cp index.html script.js style.css chart.umd.min.js public/ && cp -r data/funds.json public/data/"
   },
   "devDependencies": {
     "jsdom": "^29.1.1"
