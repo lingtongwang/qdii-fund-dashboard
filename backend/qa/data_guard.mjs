@@ -35,37 +35,9 @@ const errors = [];
 const warnings = [];
 
 // ==========================================
-// 1. 同家族人民币份额限额与状态硬一致性断言 (Dynamic Family Invariant)
-// 监管规则：同一母基金/同一QDII额度池旗下的人民币多份额（A/C/D/E/F/I），限额和状态必须完全联动一致，无论基金公司如何动态调整
+// 1. 单只基金独立真实限额与状态硬断言 (Individual Strict Limit Invariant)
+// 业务规则：每只分级份额（A/C/D/E/F/I等）限额独立抓取，只要处于「暂停大额申购」，必须具备明确具体的正数限额数值，严禁只标模糊的「限大额」！
 // ==========================================
-const families = {};
-for (const f of funds) {
-    const k = stem(f.name);
-    if (!families[k]) families[k] = [];
-    families[k].push(f);
-}
-
-for (const [k, members] of Object.entries(families)) {
-    const rmbMembers = members.filter(m => !m.name.includes('美元') && !m.name.includes('现钞') && !m.name.includes('现汇'));
-    if (rmbMembers.length > 1) {
-        const hasLof = rmbMembers.some(m => m.name.includes('LOF') || m.code.startsWith('16'));
-        
-        // 1. 状态一致性校验
-        const statuses = new Set(rmbMembers.map(m => m.purchase_status).filter(Boolean));
-        if (statuses.size > 1 && !hasLof) {
-            errors.push(`[家族状态分裂] 基金家族 "${k}" 旗下人民币份额申购状态不一致！成员: ${rmbMembers.map(m => `[${m.code}:${m.purchase_status}]`).join(', ')}`);
-        }
-
-        // 2. 限额数值一致性校验（同家族若限大额，额度必须严格相同）
-        const restrictedMembers = rmbMembers.filter(m => m.purchase_status === '暂停大额申购');
-        if (restrictedMembers.length > 1) {
-            const limits = new Set(restrictedMembers.map(m => m.limit_amount));
-            if (limits.size > 1 && !hasLof) {
-                errors.push(`[家族限额分裂] 基金家族 "${k}" 旗下人民币份额限额不一致！成员: ${restrictedMembers.map(m => `[${m.code}:${m.limit_amount == null ? '未填' : m.limit_amount + '元'}]`).join(', ')}`);
-            }
-        }
-    }
-}
 
 // ==========================================
 // 2. 状态与限额逻辑对称性硬断言 (Status & Limit Symmetry Invariant)
