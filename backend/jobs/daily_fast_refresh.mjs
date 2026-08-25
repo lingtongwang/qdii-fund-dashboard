@@ -60,7 +60,7 @@ async function fetchLatestNavAndLimit(code) {
         }
     } catch (e) {}
 
-    // 2. 抓取 lsjz 官方最新交易日数据
+    // 2. 抓取 lsjz 官方最新交易日净值数据（仅提取日期、净值、涨跌幅，不覆盖主页的限额与限大额状态）
     try {
         const res2 = await fetch(`https://api.fund.eastmoney.com/f10/lsjz?fundCode=${code}&pageIndex=1&pageSize=1`, {
             headers: { ...UA, 'Referer': 'https://fundf10.eastmoney.com/' }
@@ -69,12 +69,17 @@ async function fetchLatestNavAndLimit(code) {
             const json2 = await res2.json();
             const latest = json2?.Data?.LSJZList?.[0];
             if (latest) {
+                // 若主页未识别到状态，才以 lsjz SGZT 兜底
+                if (!purchaseStatus || purchaseStatus === '开放申购') {
+                    if (latest.SGZT && (latest.SGZT.includes('暂停') || latest.SGZT.includes('大额'))) {
+                        purchaseStatus = latest.SGZT.includes('大额') ? '暂停大额申购' : '暂停申购';
+                    }
+                }
                 latestNav = {
                     date: latest.FSRQ,
                     nav: latest.DWJZ ? parseFloat(latest.DWJZ) : null,
                     accNav: latest.LJJZ ? parseFloat(latest.LJJZ) : null,
-                    dailyReturn: latest.JZZZL ? parseFloat(latest.JZZZL) : 0,
-                    purchaseStatus: latest.SGZT ? latest.SGZT.trim() : purchaseStatus
+                    dailyReturn: latest.JZZZL ? parseFloat(latest.JZZZL) : 0
                 };
             }
         }

@@ -111,16 +111,16 @@ function formatLimit(limit, { withUnit = true, status = '' } = {}) {
     status = status || '';
     if (status.includes('场内')) return '场内交易';
     if (status.includes('暂停申购') || status === '暂停' || status.includes('封闭')) return '暂停申购';
-    if (status.includes('限大额')) {
-        if (limit != null && limit <= 10000000) {
-            if (limit >= 10000) return (limit / 10000) + (withUnit ? '万' : '');
-            return limit + (withUnit ? '元' : '');
+    if (status.includes('认购')) return '认购期';
+    if (limit != null && limit > 0) {
+        if (limit >= 10000) {
+            const wan = limit / 10000;
+            return (wan >= 1 ? wan : wan.toFixed(2)) + (withUnit ? '万' : '');
         }
-        return '限大额';
+        return limit + (withUnit ? '元' : '');
     }
-    if (limit == null || limit > 10000000) return '无限额';
-    if (limit >= 10000) return (limit / 10000) + (withUnit ? '万' : '');
-    return limit + (withUnit ? '元' : '');
+    if (status.includes('大额') || status.includes('限大额')) return '限大额';
+    return '无限额';
 }
 
 function fmtPct(v) {
