@@ -1,6 +1,8 @@
 import { DatabaseSync } from 'node:sqlite';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { execSync } from 'node:child_process';
+import fs from 'fs';
 import { stem } from '../normalize/shares.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -98,6 +100,44 @@ export function parseTradeStatusAndLimit(html) {
     return { status: '开放申购', limit: null };
 }
 
+// 独立从基金公司最新法定业务限额公告 PDF 提取真实限额
+async function fetchOfficialPdfLimit(code) {
+    try {
+        const url = `https://api.fund.eastmoney.com/f10/JJGG?fundcode=${code}&pageIndex=1&pageSize=15&type=0`;
+        const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://fundf10.eastmoney.com/' }, signal: AbortSignal.timeout(3000) });
+        if (!res.ok) return null;
+        const json = await res.json();
+        const ann = json.Data?.find(d => /调整.*限额|大额申购.*限额|暂停大额申购/.test(d.TITLE) && !/节假日/.test(d.TITLE));
+        if (!ann) return null;
+
+        const daysDiff = (Date.now() - new Date(ann.PUBLISHDATE).getTime()) / 86400000;
+        if (daysDiff > 45) return null;
+
+        const pdfUrl = `https://pdf.dfcfw.com/pdf/H2_${ann.ID}_1.pdf`;
+        const pdfRes = await fetch(pdfUrl, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(4000) });
+        if (!pdfRes.ok) return null;
+
+        const tmpPath = `/tmp/lim_${code}_${ann.ID}.pdf`;
+        fs.writeFileSync(tmpPath, Buffer.from(await pdfRes.arrayBuffer()));
+        const text = execSync(`pdftotext "${tmpPath}" -`, { encoding: 'utf8', timeout: 2000 });
+        try { fs.unlinkSync(tmpPath); } catch {}
+
+        let officialLimit = null;
+        const mLimit = text.match(/限制申购金额[^\n\d]*([\d,]+\.?\d*)/) ||
+                       text.match(/业务限额为\s*([\d,]+\.?\d*)\s*(?:元|万元)/) ||
+                       text.match(/单日累计购买上限[^\n\d]*([\d,]+\.?\d*)\s*(?:元|万元)/) ||
+                       text.match(/高于\s*([\d,]+\.?\d*)\s*(?:元|万元)/);
+        if (mLimit) {
+            let v = parseFloat(mLimit[1].replace(/,/g, ''));
+            if (/万元/.test(mLimit[0])) v *= 10000;
+            if (v > 0) officialLimit = v;
+        }
+        return officialLimit;
+    } catch {
+        return null;
+    }
+}
+
 // 三层独立直采提取单只基金/份额的真实限额与状态
 async function fetchIndividualFund(code) {
     const existing = existingMap.get(code);
@@ -140,30 +180,10 @@ async function fetchIndividualFund(code) {
         } catch (e) {}
     }
 
-    // 3. Tier 3: 该分级专属公告直采 (针对限大额但前两层均未直接写数字的次级/新设独立份额)
-    if (purchaseStatus === '暂停大额申购' && !limit) {
-        try {
-            const mAnnLink = html.match(/href=[\"'](http:\/\/guba\.eastmoney\.com\/news,of[a-zA-Z0-9]+,\d+\.html)[\"'][^>]*title=[\"'][^\"']*(?:限额|大额|暂停申购|业务限额)[^\"']*/i);
-            if (mAnnLink) {
-                const resAnn = await fetchWithRetry(mAnnLink[1], { headers: { ...UA } });
-                if (resAnn) {
-                    const htmlAnn = await resAnn.text();
-                    const codeIdx = htmlAnn.indexOf(code);
-                    let targetSnippet = htmlAnn;
-                    if (codeIdx !== -1) {
-                        targetSnippet = htmlAnn.slice(codeIdx - 200, codeIdx + 400);
-                    }
-                    const mAnnLimit = targetSnippet.match(/(?:限额为|限制申购|不超过|上限为|调整为|限制金额)\s*[:：]?\s*([\d,.]+)\s*(万)?\s*元/i) ||
-                                      htmlAnn.match(/(?:限额为|限制申购|不超过|上限为|调整为|限制金额)\s*[:：]?\s*([\d,.]+)\s*(万)?\s*元/i) ||
-                                      htmlAnn.match(/单日累计购买上限\s*([\d,.]+)\s*(万)?\s*元/i);
-                    if (mAnnLimit) {
-                        let v = parseFloat(mAnnLimit[1].replace(/,/g, ''));
-                        if (mAnnLimit[2] === '万') v *= 10000;
-                        if (v > 0) limit = v;
-                    }
-                }
-            }
-        } catch (e) {}
+    // 3. Tier 3: 官方最新法定业务限额公告 PDF 优先对齐（覆盖网页滞后数字）
+    if (purchaseStatus === '暂停大额申购') {
+        const pdfLimit = await fetchOfficialPdfLimit(code);
+        if (pdfLimit) limit = pdfLimit;
     }
 
     // 4. 抓取 lsjz 官方最新交易日净值
