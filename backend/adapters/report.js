@@ -32,17 +32,25 @@ export async function discoverArtCode(code) {
 }
 
 // 从基金主页 HTML 抽取「单日累计购买上限」（元）。
-// 开放申购 -> null（无上限）；限大额 -> 解析金额（支持「万」单位，如 5元、10元、100元、500元、1万元等真实限购额）。
+// 严禁在「暂停申购」状态下提取括号内的历史残留限额！
 export function extractLimit(html) {
     if (!html) return null;
-    const m = html.match(/单日累计购买上限\s*([\d,.]+)\s*(万)?\s*元/);
+    const mBlock = html.match(/交易状态[：:]\s*<\/span>\s*<span class="staticCell">([\s\S]*?)<\/span>/i);
+    if (mBlock) {
+        const pureText = mBlock[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+        if (/^暂停申购|^暂停交易|^封闭期|^暂停/.test(pureText)) return null;
+        if (!/^限大额|^暂停大额/.test(pureText)) return null;
+    }
+    const m = html.match(/单日累计购买上限\s*([\d,.]+)\s*(万)?\s*元/i) ||
+              html.match(/单日申购上限\s*([\d,.]+)\s*(万)?\s*元/i) ||
+              html.match(/单日限额\s*([\d,.]+)\s*(万)?\s*元/i) ||
+              html.match(/购买上限\s*([\d,.]+)\s*(万)?\s*元/i);
     if (m) {
         let v = parseFloat(m[1].replace(/,/g, ''));
         if (m[2] === '万') v *= 10000;
-        if (!(v > 0)) return null;
-        return v;
+        if (v > 0) return v;
     }
-    return null; // 开放申购 / 限大额但无明确金额 / 其他
+    return null;
 }
 
 // 单独抓取主页并抽取限额（供核心入库 / 回填使用，失败返回 null 不报错）

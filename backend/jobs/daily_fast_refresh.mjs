@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { stem } from '../normalize/shares.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const dbPath = join(__dirname, '..', 'data', 'fund.db');
@@ -47,6 +48,56 @@ for (const r of existingRows) {
     existingMap.set(r.code, r);
 }
 
+// 精准解析交易状态与限额（严格优先判断主状态，严禁在暂停申购状态下误读历史限额！）
+export function parseTradeStatusAndLimit(html) {
+    if (!html) return { status: '开放申购', limit: null };
+
+    // 匹配交易状态的主状态单元格（第一个 staticCell）
+    const mBlock = html.match(/交易状态[：:]\s*<\/span>\s*<span class="staticCell">([\s\S]*?)<\/span>\s*<span class="staticCell">/i) ||
+                   html.match(/交易状态[：:]\s*<\/span>\s*<span class="staticCell">([\s\S]*?)<\/span>/i);
+
+    if (!mBlock) {
+        return { status: '开放申购', limit: null };
+    }
+
+    const cellHtml = mBlock[1].trim();
+    const pureText = cellHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+
+    // 1. 绝对暂停申购优先判定（严禁读取括号内的历史残留限额！）
+    if (/^暂停申购|^暂停交易|^封闭期|^暂停/.test(pureText)) {
+        return { status: '暂停申购', limit: null };
+    }
+
+    // 2. 限大额判定并提取真实限额
+    if (/^限大额|^暂停大额/.test(pureText)) {
+        const mLimit = cellHtml.match(/单日累计购买上限\s*([\d,.]+)\s*(万)?\s*元/i) ||
+                       cellHtml.match(/单日申购上限\s*([\d,.]+)\s*(万)?\s*元/i) ||
+                       cellHtml.match(/单日限额\s*([\d,.]+)\s*(万)?\s*元/i) ||
+                       cellHtml.match(/购买上限\s*([\d,.]+)\s*(万)?\s*元/i) ||
+                       html.match(/单日累计购买上限\s*([\d,.]+)\s*(万)?\s*元/i);
+
+        let limit = null;
+        if (mLimit) {
+            let v = parseFloat(mLimit[1].replace(/,/g, ''));
+            if (mLimit[2] === '万') v *= 10000;
+            if (v > 0) limit = v;
+        }
+        return { status: '暂停大额申购', limit };
+    }
+
+    // 3. 开放申购
+    if (/^开放申购|^开放/.test(pureText)) {
+        return { status: '开放申购', limit: null };
+    }
+
+    // 4. 认购期
+    if (/^认购期|^认购/.test(pureText)) {
+        return { status: '认购期', limit: null };
+    }
+
+    return { status: '开放申购', limit: null };
+}
+
 // 三层独立直采提取单只基金/份额的真实限额与状态
 async function fetchIndividualFund(code) {
     const existing = existingMap.get(code);
@@ -56,35 +107,20 @@ async function fetchIndividualFund(code) {
 
     // 1. Tier 1: 主页 HTML (fund.eastmoney.com/{code}.html)
     let html = '';
-    let statusText = '';
     try {
         const res = await fetchWithRetry(`https://fund.eastmoney.com/${code}.html`, { 
             headers: { ...UA, 'Referer': 'https://fund.eastmoney.com/' } 
         });
         if (res) {
             html = await res.text();
-            const mStatus = html.match(/交易状态[：:]\s*<\/span>\s*<span class="staticCell">([^<]+)<\/span>/i) ||
-                           html.match(/交易状态[：:]\s*<\/span>\s*<span class="staticCell">\s*([^<]+)\s*<span/i);
-            statusText = mStatus ? mStatus[1].trim() : '';
-
-            const mLimit1 = html.match(/单日累计购买上限\s*([\d,.]+)\s*(万)?\s*元/i) ||
-                            html.match(/单日申购上限\s*([\d,.]+)\s*(万)?\s*元/i) ||
-                            html.match(/单日限额\s*([\d,.]+)\s*(万)?\s*元/i) ||
-                            html.match(/购买上限\s*([\d,.]+)\s*(万)?\s*元/i);
-            
-            if (mLimit1) {
-                let v = parseFloat(mLimit1[1].replace(/,/g, ''));
-                if (mLimit1[2] === '万') v *= 10000;
-                if (v > 0) {
-                    limit = v;
-                    purchaseStatus = '暂停大额申购';
-                }
-            }
+            const parsed = parseTradeStatusAndLimit(html);
+            purchaseStatus = parsed.status;
+            limit = parsed.limit;
         }
     } catch (e) {}
 
-    // 2. Tier 2: 交易规则页 (fundf10.eastmoney.com/jjfl_{code}.html)
-    if (!limit) {
+    // 2. Tier 2: 交易规则页 (fundf10.eastmoney.com/jjfl_{code}.html)（仅限限大额但主页无数字时补充）
+    if (purchaseStatus === '暂停大额申购' && !limit) {
         try {
             const res2 = await fetchWithRetry(`https://fundf10.eastmoney.com/jjfl_${code}.html`, { 
                 headers: { ...UA, 'Referer': 'https://fundf10.eastmoney.com/' } 
@@ -98,18 +134,14 @@ async function fetchIndividualFund(code) {
                 if (mLimit2) {
                     let v = parseFloat(mLimit2[1].replace(/,/g, ''));
                     if (mLimit2[2] === '万') v *= 10000;
-                    if (v > 0) {
-                        limit = v;
-                        purchaseStatus = '暂停大额申购';
-                    }
+                    if (v > 0) limit = v;
                 }
             }
         } catch (e) {}
     }
 
-    // 3. Tier 3: 该分级专属公告直采 (针对限大额但两层均未直接写数字的次级/新设独立份额)
-    if (!limit && (statusText.includes('限大额') || statusText.includes('暂停大额') || (html && html.includes('暂停大额申购')))) {
-        purchaseStatus = '暂停大额申购';
+    // 3. Tier 3: 该分级专属公告直采 (针对限大额但前两层均未直接写数字的次级/新设独立份额)
+    if (purchaseStatus === '暂停大额申购' && !limit) {
         try {
             const mAnnLink = html.match(/href=[\"'](http:\/\/guba\.eastmoney\.com\/news,of[a-zA-Z0-9]+,\d+\.html)[\"'][^>]*title=[\"'][^\"']*(?:限额|大额|暂停申购|业务限额)[^\"']*/i);
             if (mAnnLink) {
@@ -132,23 +164,6 @@ async function fetchIndividualFund(code) {
                 }
             }
         } catch (e) {}
-    }
-
-    // 非限大额状态判定
-    if (!limit) {
-        if (statusText.includes('暂停申购') || statusText.includes('暂停交易')) {
-            purchaseStatus = '暂停申购';
-            limit = null;
-        } else if (statusText.includes('开放申购') || statusText.includes('开放')) {
-            purchaseStatus = '开放申购';
-            limit = null;
-        } else if (statusText.includes('认购期') || statusText.includes('认购')) {
-            purchaseStatus = '认购期';
-            limit = null;
-        } else if (statusText.includes('封闭期') || statusText.includes('封闭')) {
-            purchaseStatus = '封闭期';
-            limit = null;
-        }
     }
 
     // 4. 抓取 lsjz 官方最新交易日净值
@@ -186,6 +201,33 @@ for (let i = 0; i < funds.length; i += BATCH_SIZE) {
     await sleep(40);
 }
 console.log(`\n✅ 抓取完毕，耗时 ${((Date.now() - startTime) / 1000).toFixed(2)}s`);
+
+// 构建母基金/同系份额限额映射表（用于次级份额 D/E/I 类继承同系主限额）
+const fundNameMap = new Map(funds.map(f => [f.code, f.name]));
+const stemLimitMap = new Map();
+for (const m of crawledResults) {
+    if (m.purchaseStatus === '暂停大额申购' && m.limit > 0) {
+        const name = fundNameMap.get(m.code);
+        if (name) {
+            const s = stem(name);
+            if (!stemLimitMap.has(s)) stemLimitMap.set(s, m.limit);
+        }
+    }
+}
+
+// 补齐同系次级份额的限额
+for (const m of crawledResults) {
+    if (m.purchaseStatus === '暂停大额申购' && !m.limit) {
+        const name = fundNameMap.get(m.code);
+        if (name) {
+            const s = stem(name);
+            const inherited = stemLimitMap.get(s);
+            if (inherited) {
+                m.limit = inherited;
+            }
+        }
+    }
+}
 
 db.exec('BEGIN TRANSACTION;');
 const updStmt = db.prepare(`
