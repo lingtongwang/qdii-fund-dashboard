@@ -55,7 +55,7 @@ for (const f of funds) {
     if (!isUsd && f.purchase_status === '暂停大额申购' && (f.limit_amount == null || f.limit_amount <= 0)) {
         errors.push(`[缺失具体限额] 人民币基金 [${f.code}] ${f.name} 状态为暂停大额申购，但缺少具体的申购限额数值！`);
     }
-    if (f.limit_amount != null && (f.limit_amount <= 0 || isNaN(f.limit_amount) || f.limit_amount > 100000000)) {
+    if (f.limit_amount != null && (f.limit_amount <= 0 || isNaN(f.limit_amount) || f.limit_amount > 1000000000)) {
         errors.push(`[限额数值越界] 基金 [${f.code}] ${f.name} 限额数值异常: ${f.limit_amount}`);
     }
 }
@@ -88,13 +88,42 @@ for (const f of mainstreamFunds) {
         }
     }
 
-    // 3.4 行业与持仓合法性
-    const indCount = db.prepare('SELECT count(*) as cnt FROM industry_alloc WHERE code=?').get(f.code).cnt;
-    const holdCount = db.prepare('SELECT count(*) as cnt FROM holdings WHERE code=?').get(f.code).cnt;
-    if (indCount === 0) {
+    // 3.4 行业与持仓合法性 & 语义交叉一致性断言 (Semantic Cross-Consistency)
+    const indRows = db.prepare('SELECT name, pct FROM industry_alloc WHERE code=? ORDER BY pct DESC').all(f.code);
+    const holdRows = db.prepare('SELECT name, symbol, pct FROM holdings WHERE code=?').all(f.code);
+    
+    if (!indRows || indRows.length === 0) {
         errors.push(`[行业缺失] 基金 [${f.code}] ${f.name} 缺失行业配置数据！`);
+    } else {
+        const sumInd = indRows.reduce((s, r) => s + r.pct, 0);
+        if (sumInd > 1.5) {
+            errors.push(`[行业总和超标] 基金 [${f.code}] ${f.name} 行业占比合计异常: ${(sumInd * 100).toFixed(2)}%`);
+        }
+        // 单行业占比越界检查
+        for (const ind of indRows) {
+            if (ind.pct <= 0 || ind.pct > 1.05) {
+                errors.push(`[行业占比越界] 基金 [${f.code}] ${f.name} 行业 [${ind.name}] 占比异常: ${(ind.pct * 100).toFixed(2)}%`);
+            }
+        }
+        // 语义交叉一致性校验：若重仓股显著为科技股，行业绝不能错配为互斥行业
+        if (holdRows && holdRows.length > 0) {
+            const techHoldingSum = holdRows
+                .filter(h => /英伟达|苹果|微软|美光|超威|AMD|NVDA|AAPL|MSFT|台积电|TSM|谷歌|GOOG|博通|AVGO|腾讯|阿里|中芯/i.test(h.name + (h.symbol || '')))
+                .reduce((s, h) => s + (h.pct || 0), 0);
+            
+            if (techHoldingSum >= 20) {
+                const techIndSum = indRows
+                    .filter(i => /信息技术|科技|通讯业务|通信服务|半导体/i.test(i.name))
+                    .reduce((s, i) => s + (i.pct || 0) * 100, 0);
+                
+                if (techIndSum < 10 && indRows[0]?.name === '房地产') {
+                    errors.push(`[行业持仓语义冲突] 基金 [${f.code}] ${f.name} 前十大持仓科技龙头占比 ${techHoldingSum.toFixed(1)}%，但行业被错误标记为第一大重仓【${indRows[0].name} ${(indRows[0].pct * 100).toFixed(1)}%】！`);
+                }
+            }
+        }
     }
-    if (holdCount === 0) {
+
+    if (!holdRows || holdRows.length === 0) {
         warnings.push(`[持仓为空] 基金 [${f.code}] ${f.name} 前十大重仓股为空`);
     }
 

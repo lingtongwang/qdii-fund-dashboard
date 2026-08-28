@@ -1,0 +1,95 @@
+name: QDII Fund Quarterly Report Deep Refresh
+
+on:
+  schedule:
+    # 每周日凌晨 02:00 (UTC) 执行一次季度/半年报深度对账与归档
+    - cron: '0 2 * * 0'
+  workflow_dispatch: # 支持在 GitHub 页面随时手动一键触发
+
+permissions:
+  contents: write
+
+jobs:
+  quarterly-refresh:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install System Dependencies (pdftotext)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils
+
+      - name: Install Dependencies
+        run: |
+          npm install
+
+      - name: Cache Official PDF Reports
+        uses: actions/cache@v4
+        with:
+          path: backend/data/reports_pdf
+          key: fund-reports-pdf-${{ github.sha }}
+          restore-keys: |
+            fund-reports-pdf-
+
+      - name: 1. Pull Latest Periodic Reports & Parse PDF Truth (5.1-5.4 / 7.1-7.4)
+        run: |
+          node --experimental-sqlite backend/jobs/quarterly_refresh.mjs
+
+      - name: 2. Run Full-Spectrum Dual-Source Cross Verification (PDF vs HYPZ API)
+        run: |
+          node --experimental-sqlite backend/qa/dual_source_verifier.mjs --mode=full
+
+      - name: 3. Re-run Penetration Classification Engine
+        run: |
+          node --experimental-sqlite -e "
+            import { DatabaseSync } from 'node:sqlite';
+            import { classify } from './backend/classify.js';
+            const db = new DatabaseSync('backend/data/fund.db');
+            const funds = db.prepare('SELECT * FROM funds').all();
+            const upd = db.prepare(\"UPDATE funds SET tab=?, pill=?, classify_basis=?, updated_at=datetime('now') WHERE code=?\");
+            db.exec('BEGIN TRANSACTION;');
+            for (const f of funds) {
+                const regions = db.prepare('SELECT name, pct FROM region_alloc WHERE code=?').all(f.code);
+                const holdingsDb = db.prepare('SELECT name as n, pct as r FROM holdings WHERE code=?').all(f.code);
+                const industriesDb = db.prepare('SELECT name, pct FROM industry_alloc WHERE code=?').all(f.code);
+                const cls = classify({
+                    name: f.name,
+                    type: f.raw_type,
+                    tracking_index: f.tracking_index || '',
+                    benchmark: f.benchmark || '',
+                    regions,
+                    holdings: holdingsDb,
+                    industries: industriesDb
+                });
+                upd.run(cls.tab, cls.pill, cls.basis, f.code);
+            }
+            db.exec('COMMIT;');
+          "
+
+      - name: 4. Run DataGuard Quality Gate
+        run: |
+          node --experimental-sqlite backend/qa/data_guard.mjs
+
+      - name: 5. Build & Verify Static Distribution
+        run: |
+          npm run build
+
+      - name: 6. Commit & Push Updated Database & Static JSON
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add backend/data/fund.db* data/funds.json public/
+          git diff --quiet && git diff --staged --quiet || (git commit -m "chore(data): quarterly official PDF & industry truth refresh [skip ci]" && git push)

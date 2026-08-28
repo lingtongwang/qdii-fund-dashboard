@@ -107,7 +107,10 @@ async function fetchOfficialPdfLimit(code) {
         const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://fundf10.eastmoney.com/' }, signal: AbortSignal.timeout(3000) });
         if (!res.ok) return null;
         const json = await res.json();
-        const ann = json.Data?.find(d => /调整.*限额|大额申购.*限额|暂停大额申购/.test(d.TITLE) && !/节假日/.test(d.TITLE));
+        const ann = json.Data?.find(d => 
+            /(?:大额申购|大额投资|申购限额|购买上限|暂停申购|恢复申购|恢复大额|限制申购)/.test(d.TITLE) && 
+            !/节假日|港股通非交易日|系统维护|通联渠道|设备|改聘|基准|资料概要|招募说明书|季度报告|净值/.test(d.TITLE)
+        );
         if (!ann) return null;
 
         const daysDiff = (Date.now() - new Date(ann.PUBLISHDATE).getTime()) / 86400000;
@@ -123,13 +126,18 @@ async function fetchOfficialPdfLimit(code) {
         try { fs.unlinkSync(tmpPath); } catch {}
 
         let officialLimit = null;
-        const mLimit = text.match(/限制申购金额[^\n\d]*([\d,]+\.?\d*)/) ||
-                       text.match(/业务限额为\s*([\d,]+\.?\d*)\s*(?:元|万元)/) ||
-                       text.match(/单日累计购买上限[^\n\d]*([\d,]+\.?\d*)\s*(?:元|万元)/) ||
-                       text.match(/高于\s*([\d,]+\.?\d*)\s*(?:元|万元)/);
+        const codeIdx = text.indexOf(code);
+        let searchSnippet = text;
+        if (codeIdx !== -1) {
+            searchSnippet = text.slice(codeIdx - 300, codeIdx + 300);
+        }
+
+        const mLimit = searchSnippet.match(/(?:限制申购金额|限制金额|业务限额为|购买上限为?)\s*[:：]?\s*([\d,.]+)\s*(万)?\s*(?:元|美元)/i) ||
+                       text.match(/(?:限制申购金额|限制金额|业务限额为|购买上限为?)\s*[:：]?\s*([\d,.]+)\s*(万)?\s*(?:元|美元)/i) ||
+                       text.match(/(?:单日每个基金账户|单日单个基金账户)[^\n]{0,50}?(?:等于或低于|高于|限制为|限额为)\s*([\d,.]+)\s*(万)?\s*(?:元|美元)/i);
         if (mLimit) {
             let v = parseFloat(mLimit[1].replace(/,/g, ''));
-            if (/万元/.test(mLimit[0])) v *= 10000;
+            if (mLimit[2] === '万') v *= 10000;
             if (v > 0) officialLimit = v;
         }
         return officialLimit;
@@ -184,6 +192,12 @@ async function fetchIndividualFund(code) {
     if (purchaseStatus === '暂停大额申购') {
         const pdfLimit = await fetchOfficialPdfLimit(code);
         if (pdfLimit) limit = pdfLimit;
+    }
+
+    // 若依然无法获取具体限额数字（如全额暂停但前端残留限大额），自动纠正为暂停申购以符合业务不变式
+    if (purchaseStatus === '暂停大额申购' && (!limit || limit <= 0)) {
+        purchaseStatus = '暂停申购';
+        limit = null;
     }
 
     // 4. 抓取 lsjz 官方最新交易日净值

@@ -28,11 +28,16 @@ const CANONICAL_COUNTRIES = [
     '爱尔兰', '挪威', '丹麦', '比利时', '奥地利', '卢森堡', '以色列', '新西兰'
 ];
 
+function normalizeCountry(c) {
+    if (c === '中国内地' || c === '中国') return '中国大陆';
+    return c;
+}
+
 export function parsePdfReport(pdfText) {
     if (!pdfText) return null;
 
     const result = {
-        countries: null,
+        countries: [],
         assetAlloc: null,
         holdings: null
     };
@@ -40,81 +45,62 @@ export function parsePdfReport(pdfText) {
     // 1. 解析国家（地区）证券市场分布 (Section 5.2 / 8.2)
     const countryMatch = pdfText.match(/(?:在各个国家（地区）证券市场的股票及存托凭证投资分布|各个国家（地区）证券市场分布的权益投资|按国家（地区）证券市场分布的权益投资|各个国家（地区）证券市场的股票投资分布|按国家（地区）证券市场分布的股票投资)[^\n]*\n([\s\S]*?)(?:\n\s*5\.3|\n\s*5\.4|\n\s*8\.3|\n\s*8\.4|\n\s*报告期末按行业分类|\n\s*按行业分类)/i);
     if (countryMatch) {
-        const segment = countryMatch[1];
-        const cleanLines = segment.split('\n')
-            .map(l => l.trim())
-            .filter(l => l && !/第\s*\d+\s*页|共\s*\d+\s*页|季度报告|中期报告|报告期末/i.test(l));
+        const lines = countryMatch[1].split('\n');
+        const countryMap = new Map();
+        for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed || /合计|小计|序号|项目|公允价值|比例|注：|注:|第\s*\d+\s*页|共\s*\d+\s*页/i.test(trimmed)) continue;
 
-        const foundCountries = [];
-        for (const line of cleanLines) {
-            if (/占基金|类别|资产|公允价值|比例|序号|项目|合计|注：|注:/.test(line)) continue;
             for (const c of CANONICAL_COUNTRIES) {
-                if (line === c || line.startsWith(c)) {
-                    if (!foundCountries.includes(c)) foundCountries.push(c);
+                const idx = trimmed.indexOf(c);
+                if (idx >= 0 && idx < 12) {
+                    const nums = trimmed.match(/(\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+\.\d+)/g);
+                    if (nums && nums.length > 0) {
+                        const lastNum = parseFloat(nums[nums.length - 1].replace(/,/g, ''));
+                        if (!isNaN(lastNum) && lastNum > 0 && lastNum <= 100) {
+                            const norm = normalizeCountry(c);
+                            countryMap.set(norm, (countryMap.get(norm) || 0) + lastNum / 100);
+                        }
+                    }
                     break;
                 }
             }
         }
-
-        const allPcts = [];
-        for (const line of cleanLines) {
-            const matches = line.match(/\b([0-9]{1,2}\.[0-9]{2,4})\b/g);
-            if (matches) {
-                for (const m of matches) {
-                    const val = parseFloat(m);
-                    if (val > 0 && val < 100) allPcts.push(val);
-                }
-            }
-        }
-
-        let pctsToUse = allPcts;
-        if (allPcts.length > foundCountries.length) {
-            if (allPcts.length === foundCountries.length + 1) {
-                pctsToUse = allPcts.slice(0, foundCountries.length);
-            } else {
-                pctsToUse = allPcts.slice(-foundCountries.length);
-            }
-        }
-
-        if (foundCountries.length > 0 && pctsToUse.length > 0) {
-            const count = Math.min(foundCountries.length, pctsToUse.length);
-            const countryMap = new Map();
-            for (let i = 0; i < count; i++) {
-                let c = foundCountries[i];
-                if (c === '中国内地' || c === '中国') c = '中国大陆';
-                countryMap.set(c, (countryMap.get(c) || 0) + pctsToUse[i] / 100);
-            }
-            const countries = [];
-            for (const [country, pct] of countryMap.entries()) {
-                countries.push({ country, pct });
-            }
-            result.countries = countries;
+        for (const [country, pct] of countryMap.entries()) {
+            result.countries.push({ country, pct });
         }
     }
 
     // 2. 解析资产组合分布 (Section 5.1 / 8.1)
-    const assetMatch = pdfText.match(/(?:报告期末基金资产组合情况|期末基金资产组合情况)[^\n]*\n([\s\S]*?)(?:5\.2|8\.2|各个国家|股票及存托凭证投资分布)/i);
+    const assetMatch = pdfText.match(/(?:报告期末基金资产组合情况|期末基金资产组合情况)[^\n]*\n([\s\S]*?)(?:5\.2|8\.2|各个国家|各个地区|股票及存托凭证投资分布)/i);
     if (assetMatch) {
         const seg = assetMatch[1];
         let stockPct = null;
         let bondPct = null;
         let cashPct = null;
 
-        const stockLine = seg.match(/权益投资[^\n]*\n[^\n]*?([0-9]{1,2}\.[0-9]{2,4})/);
-        if (stockLine) stockPct = parseFloat(stockLine[1]);
-
-        const bondLine = seg.match(/固定收益投资[^\n]*\n[^\n]*?([0-9]{1,2}\.[0-9]{2,4})/);
-        if (bondLine) bondPct = parseFloat(bondLine[1]);
-
-        const cashLine = seg.match(/银行存款和结算备付金合计[^\n]*\n[^\n]*?([0-9]{1,2}\.[0-9]{2,4})/);
-        if (cashLine) cashPct = parseFloat(cashLine[1]);
+        for (const line of seg.split('\n')) {
+            const trimmed = line.trim();
+            if (/^1\s+权益投资|^\s*权益投资/.test(trimmed)) {
+                const nums = trimmed.match(/(\d+\.\d{2,4})/g);
+                if (nums && nums.length > 0) stockPct = parseFloat(nums[nums.length - 1]);
+            }
+            if (/^3\s+固定收益投资|^\s*固定收益投资|^\s*债券投资/.test(trimmed)) {
+                const nums = trimmed.match(/(\d+\.\d{2,4})/g);
+                if (nums && nums.length > 0) bondPct = parseFloat(nums[nums.length - 1]);
+            }
+            if (/银行存款和结算备付金|银行存款/.test(trimmed)) {
+                const nums = trimmed.match(/(\d+\.\d{2,4})/g);
+                if (nums && nums.length > 0) cashPct = parseFloat(nums[nums.length - 1]);
+            }
+        }
 
         if (stockPct !== null || cashPct !== null) {
             result.assetAlloc = {
                 stock: stockPct || 0,
                 bond: bondPct || 0,
                 cash: cashPct || 0,
-                other: Math.max(0, 100 - (stockPct || 0) - (bondPct || 0) - (cashPct || 0))
+                other: Math.max(0, parseFloat((100 - (stockPct || 0) - (bondPct || 0) - (cashPct || 0)).toFixed(2)))
             };
         }
     }
@@ -167,8 +153,8 @@ export async function syncAllQuarterlyPdfTruth() {
 
                 if (!fs.existsSync(pdfPath)) return;
 
-                // 3. 本地原生提取文本并解析黄金真值
-                const text = execSync(`pdftotext "${pdfPath}" -`, { encoding: 'utf8', timeout: 3000 });
+                // 3. 本地原生提取文本并解析黄金真值（使用 -layout）
+                const text = execSync(`pdftotext -layout "${pdfPath}" -`, { encoding: 'utf8', timeout: 3000 });
                 const parsed = parsePdfReport(text);
 
                 if (parsed && parsed.countries && parsed.countries.length > 0) {

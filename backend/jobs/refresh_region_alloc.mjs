@@ -20,56 +20,37 @@ const CANONICAL_COUNTRIES = [
     '爱尔兰', '挪威', '丹麦', '比利时', '奥地利', '卢森堡', '以色列', '新西兰'
 ];
 
+function normalizeCountry(c) {
+    if (c === '中国内地' || c === '中国') return '中国大陆';
+    return c;
+}
+
 export function extractOfficialCountriesFromPdfText(pdfText) {
     if (!pdfText) return null;
     const regex = /(?:在各个国家（地区）证券市场的股票及存托凭证投资分布|各个国家（地区）证券市场分布的权益投资|按国家（地区）证券市场分布的权益投资|各个国家（地区）证券市场的股票投资分布|按国家（地区）证券市场分布的股票投资)[^\n]*\n([\s\S]*?)(?:\n\s*5\.3|\n\s*5\.4|\n\s*8\.3|\n\s*8\.4|\n\s*报告期末按行业分类|\n\s*按行业分类)/i;
     const match = pdfText.match(regex);
     if (!match) return null;
 
-    const segment = match[1];
-    const cleanLines = segment.split('\n')
-        .map(l => l.trim())
-        .filter(l => l && !/第\s*\d+\s*页|共\s*\d+\s*页|季度报告|中期报告|报告期末/i.test(l));
+    const lines = match[1].split('\n');
+    const countryMap = new Map();
+    for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || /合计|小计|序号|项目|公允价值|比例|注：|注:|第\s*\d+\s*页|共\s*\d+\s*页/i.test(trimmed)) continue;
 
-    const foundCountries = [];
-    for (const line of cleanLines) {
-        if (/占基金|类别|资产|公允价值|比例|序号|项目|合计|注：|注:/.test(line)) continue;
         for (const c of CANONICAL_COUNTRIES) {
-            if (line === c || line.startsWith(c)) {
-                if (!foundCountries.includes(c)) foundCountries.push(c);
+            const idx = trimmed.indexOf(c);
+            if (idx >= 0 && idx < 12) {
+                const nums = trimmed.match(/(\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+\.\d+)/g);
+                if (nums && nums.length > 0) {
+                    const lastNum = parseFloat(nums[nums.length - 1].replace(/,/g, ''));
+                    if (!isNaN(lastNum) && lastNum > 0 && lastNum <= 100) {
+                        const norm = normalizeCountry(c);
+                        countryMap.set(norm, (countryMap.get(norm) || 0) + lastNum / 100);
+                    }
+                }
                 break;
             }
         }
-    }
-
-    const allPcts = [];
-    for (const line of cleanLines) {
-        const matches = line.match(/\b([0-9]{1,2}\.[0-9]{2,4})\b/g);
-        if (matches) {
-            for (const m of matches) {
-                const val = parseFloat(m);
-                if (val > 0 && val < 100) allPcts.push(val);
-            }
-        }
-    }
-
-    let pctsToUse = allPcts;
-    if (allPcts.length > foundCountries.length) {
-        if (allPcts.length === foundCountries.length + 1) {
-            pctsToUse = allPcts.slice(0, foundCountries.length);
-        } else {
-            pctsToUse = allPcts.slice(-foundCountries.length);
-        }
-    }
-
-    if (foundCountries.length === 0 || pctsToUse.length === 0) return null;
-
-    const count = Math.min(foundCountries.length, pctsToUse.length);
-    const countryMap = new Map();
-    for (let i = 0; i < count; i++) {
-        let c = foundCountries[i];
-        if (c === '中国内地' || c === '中国') c = '中国大陆';
-        countryMap.set(c, (countryMap.get(c) || 0) + pctsToUse[i] / 100);
     }
 
     const result = [];
@@ -127,7 +108,7 @@ export async function refreshOfficialCountryAlloc() {
                         const tmpFile = `/tmp/alloc_${f.code}_${Date.now()}_${Math.random().toString(36).slice(2)}.pdf`;
                         fs.writeFileSync(tmpFile, buf);
                         try {
-                            const text = execSync(`pdftotext ${tmpFile} -`, { encoding: 'utf8', timeout: 3000 });
+                            const text = execSync(`pdftotext -layout ${tmpFile} -`, { encoding: 'utf8', timeout: 3000 });
                             const extracted = extractOfficialCountriesFromPdfText(text);
                             if (extracted && extracted.length > 0) {
                                 const sum = extracted.reduce((a, b) => a + b.pct, 0);

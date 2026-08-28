@@ -26,38 +26,74 @@ const CANONICAL_COUNTRIES = [
 ];
 
 const CANONICAL_INDUSTRIES = [
-    '信息技术', '通信业务', '通讯业务', '电信服务', '非必需消费品', '非日常生活消费品',
-    '必需消费品', '日常消费品', '金融', '医疗保健', '保健', '工业', '材料', '原材料',
-    '能源', '房地产', '公用事业', '科技', '消费', '医药'
+    '信息技术', '信息科技', '通信服务', '通信业务', '通讯业务', '电信服务', '电信业务', '通讯', '通信',
+    '非必需消费品', '非日常生活消费品', '可选消费',
+    '必需消费品', '日常消费品', '主要消费', '日常生活消费品',
+    '金融', '金融业',
+    '医疗保健', '保健', '医药生物', '医药',
+    '工业', '制造业',
+    '材料', '原材料', '基础材料',
+    '能源', '能源业',
+    '房地产', '房地产业',
+    '公用事业', '科技', '消费',
+    'Information', 'Technology', 'Health Care', 'Industrials', 'Financials', 'Consumer', 'Materials', 'Energy', 'Real Estate', 'Utilities', 'Communication',
+    '信息传输、软件和信息技术服务业', '信息传输', '电子设备制造业'
 ];
+
+function normalizeIndustry(name) {
+    if (/通信|电信|Communication/i.test(name)) return '通讯业务';
+    if (/非必需|非日常|可选|Discretionary/i.test(name)) return '非必需消费品';
+    if (/必需|日常消费|主要消费|Staples/i.test(name)) return '必需消费品';
+    if (/材料|原材料|基础材料|Materials/i.test(name)) return '材料';
+    if (/保健|医药|Health/i.test(name)) return '医疗保健';
+    if (/工业|制造业|Industrials/i.test(name)) return '工业';
+    if (/能源|Energy/i.test(name)) return '能源';
+    if (/房地产|Real Estate/i.test(name)) return '房地产';
+    if (/金融|Financials/i.test(name)) return '金融';
+    if (/信息|科技|Technology|Information|软件/i.test(name)) return '信息技术';
+    return name;
+}
+
+function normalizeCountry(c) {
+    if (c === '中国内地' || c === '中国') return '中国大陆';
+    return c;
+}
 
 export function parseFullQuarterlyPdf(pdfText) {
     if (!pdfText) return null;
 
     const result = {
-        countries: null,
+        countries: [],
         assetAlloc: null,
-        industries: null,
+        industries: [],
         scale: null,
         returns: null
     };
 
-    // --- ① 资产组合情况 (Section 5.1 / 8.1) ---
-    const assetMatch = pdfText.match(/(?:报告期末基金资产组合情况|期末基金资产组合情况)[^\n]*\n([\s\S]*?)(?:5\.2|8\.2|各个国家|股票及存托凭证投资分布)/i);
-    if (assetMatch) {
-        const seg = assetMatch[1];
+    // --- ① 资产组合情况 (Section 5.1 / 7.1 / 8.1 / 9.1) ---
+    const assetMatches = [...pdfText.matchAll(/(?:报告期末基金资产组合情况|期末基金资产组合情况|基金资产组合情况)/g)];
+    for (const m of assetMatches) {
+        if (m.index < 800) continue;
+        const seg = pdfText.slice(m.index, m.index + 2000);
         let stockPct = null;
         let bondPct = null;
         let cashPct = null;
 
-        const stockLine = seg.match(/权益投资[^\n]*\n[^\n]*?([0-9]{1,2}\.[0-9]{2,4})/);
-        if (stockLine) stockPct = parseFloat(stockLine[1]);
-
-        const bondLine = seg.match(/固定收益投资[^\n]*\n[^\n]*?([0-9]{1,2}\.[0-9]{2,4})/);
-        if (bondLine) bondPct = parseFloat(bondLine[1]);
-
-        const cashLine = seg.match(/银行存款和结算备付金合计[^\n]*\n[^\n]*?([0-9]{1,2}\.[0-9]{2,4})/);
-        if (cashLine) cashPct = parseFloat(cashLine[1]);
+        for (const line of seg.split('\n')) {
+            const trimmed = line.trim();
+            if (/^1\s+权益投资|^\s*权益投资/.test(trimmed)) {
+                const nums = trimmed.match(/(\d+\.\d{2,4})/g);
+                if (nums && nums.length > 0) stockPct = parseFloat(nums[nums.length - 1]);
+            }
+            if (/^3\s+固定收益投资|^\s*固定收益投资|^\s*债券投资/.test(trimmed)) {
+                const nums = trimmed.match(/(\d+\.\d{2,4})/g);
+                if (nums && nums.length > 0) bondPct = parseFloat(nums[nums.length - 1]);
+            }
+            if (/银行存款和结算备付金|银行存款/.test(trimmed)) {
+                const nums = trimmed.match(/(\d+\.\d{2,4})/g);
+                if (nums && nums.length > 0) cashPct = parseFloat(nums[nums.length - 1]);
+            }
+        }
 
         if (stockPct !== null || cashPct !== null) {
             result.assetAlloc = {
@@ -66,117 +102,94 @@ export function parseFullQuarterlyPdf(pdfText) {
                 cash: cashPct || 0,
                 other: Math.max(0, parseFloat((100 - (stockPct || 0) - (bondPct || 0) - (cashPct || 0)).toFixed(2)))
             };
+            break;
         }
     }
 
-    // --- ② 各个国家（地区）证券市场投资分布 (Section 5.2 / 8.2) ---
-    const countryMatch = pdfText.match(/(?:在各个国家（地区）证券市场的股票及存托凭证投资分布|各个国家（地区）证券市场分布的权益投资|按国家（地区）证券市场分布的权益投资|各个国家（地区）证券市场的股票投资分布|按国家（地区）证券市场分布的股票投资)[^\n]*\n([\s\S]*?)(?:\n\s*5\.3|\n\s*5\.4|\n\s*8\.3|\n\s*8\.4|\n\s*报告期末按行业分类|\n\s*按行业分类)/i);
-    if (countryMatch) {
-        const segment = countryMatch[1];
-        const cleanLines = segment.split('\n')
-            .map(l => l.trim())
-            .filter(l => l && !/第\s*\d+\s*页|共\s*\d+\s*页|季度报告|中期报告|报告期末/i.test(l));
+    // --- ② 各个国家（地区）证券市场投资分布 (Section 5.2 / 7.2 / 8.2 / 9.2) ---
+    const countryMatches = [...pdfText.matchAll(/(?:在各个国家（地区）证券市场的股票及存托凭证投资分布|各个国家（地区）证券市场分布的权益投资|按国家（地区）证券市场分布的权益投资|各个国家（地区）证券市场的股票投资分布|按国家（地区）证券市场分布的股票投资|在各个国家（地区）证券市场的权益投资分布|期末在各个国家（地区）证券市场的权益投资分布)/g)];
+    let bestCountries = [];
+    for (const m of countryMatches) {
+        if (m.index < 800) continue;
+        const seg = pdfText.slice(m.index, m.index + 2000);
+        const endMatch = seg.match(/(?:\n\s*[5-9]\.3|\n\s*报告期末按行业分类|\n\s*按行业分类|\n\s*期末按行业分类)/i);
+        const tableText = endMatch ? seg.slice(0, endMatch.index) : seg.slice(0, 1200);
 
-        const foundCountries = [];
-        for (const line of cleanLines) {
-            if (/占基金|类别|资产|公允价值|比例|序号|项目|合计|注：|注:/.test(line)) continue;
+        const lines = tableText.split('\n');
+        const countryMap = new Map();
+        for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed || /合计|小计|序号|项目|公允价值|比例|注：|注:|第\s*\d+\s*页|共\s*\d+\s*页/i.test(trimmed)) continue;
+            if (/\s+-\s+-|\s+-\s*$/.test(trimmed) && !/\d+\.\d+/.test(trimmed)) continue;
+
             for (const c of CANONICAL_COUNTRIES) {
-                if (line === c || line.startsWith(c)) {
-                    if (!foundCountries.includes(c)) foundCountries.push(c);
+                const idx = trimmed.indexOf(c);
+                if (idx >= 0 && idx < 12) {
+                    const nums = trimmed.match(/(\d+\.\d{1,4})/g);
+                    if (nums && nums.length > 0) {
+                        const lastNum = parseFloat(nums[nums.length - 1]);
+                        if (!isNaN(lastNum) && lastNum > 0 && lastNum <= 100) {
+                            const norm = normalizeCountry(c);
+                            countryMap.set(norm, (countryMap.get(norm) || 0) + lastNum / 100);
+                        }
+                    }
                     break;
                 }
             }
         }
-
-        const allPcts = [];
-        for (const line of cleanLines) {
-            const matches = line.match(/\b([0-9]{1,2}\.[0-9]{2,4})\b/g);
-            if (matches) {
-                for (const m of matches) {
-                    const val = parseFloat(m);
-                    if (val > 0 && val < 100) allPcts.push(val);
-                }
-            }
-        }
-
-        let pctsToUse = allPcts;
-        if (allPcts.length > foundCountries.length) {
-            if (allPcts.length === foundCountries.length + 1) {
-                pctsToUse = allPcts.slice(0, foundCountries.length);
-            } else {
-                pctsToUse = allPcts.slice(-foundCountries.length);
-            }
-        }
-
-        if (foundCountries.length > 0 && pctsToUse.length > 0) {
-            const count = Math.min(foundCountries.length, pctsToUse.length);
-            const countryMap = new Map();
-            for (let i = 0; i < count; i++) {
-                let c = foundCountries[i];
-                if (c === '中国内地' || c === '中国') c = '中国大陆';
-                countryMap.set(c, (countryMap.get(c) || 0) + pctsToUse[i] / 100);
-            }
-            const countries = [];
-            for (const [country, pct] of countryMap.entries()) {
-                countries.push({ country, pct });
-            }
-            result.countries = countries;
-        }
+        const cList = [];
+        for (const [country, pct] of countryMap.entries()) cList.push({ country, pct });
+        if (cList.length > bestCountries.length) bestCountries = cList;
     }
+    result.countries = bestCountries;
 
-    // --- ③ 行业分类投资组合 (Section 5.3 / 8.3) ---
-    const indMatch = pdfText.match(/(?:报告期末按行业分类的股票及存托凭证投资组合|按行业分类的股票投资组合|按行业分类的股票及存托凭证投资组合)[^\n]*\n([\s\S]*?)(?:\n\s*5\.4|\n\s*8\.4|\n\s*前十名股票|\n\s*按公允价值)/i);
-    if (indMatch) {
-        const seg = indMatch[1];
-        const cleanLines = seg.split('\n')
-            .map(l => l.trim())
-            .filter(l => l && !/第\s*\d+\s*页|共\s*\d+\s*页|季度报告|中期报告|报告期末/i.test(l));
+    // --- ③ 行业分类投资组合 (Section 5.3 / 7.3 / 8.3 / 9.3) ---
+    const indMatches = [...pdfText.matchAll(/(?:按行业分类的股票及存托凭证投资组合|按行业分类的股票投资组合|按行业分类的权益投资组合|期末按行业分类的权益投资组合|期末指数投资按行业分类|报告期末按行业分类)/g)];
+    let bestInds = [];
+    for (const m of indMatches) {
+        if (m.index < 800) continue;
+        const seg = pdfText.slice(m.index, m.index + 2500);
+        const endMatch = seg.match(/(?:\n\s*[5-9]\.4|\n\s*前十名|\n\s*按公允价值排序|\n\s*7\.4|\n\s*8\.4|\n\s*9\.4)/i);
+        const tableText = endMatch ? seg.slice(0, endMatch.index) : seg.slice(0, 1500);
 
-        const foundInds = [];
-        for (const line of cleanLines) {
-            if (/占基金|类别|资产|公允价值|比例|序号|项目|合计|注：|注:/.test(line)) continue;
+        const lines = tableText.split('\n');
+        const indMap = new Map();
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            const trimmed = line.trim();
+            if (!trimmed || /合计|小计|总计|序号|项目|公允价值|比例|注：|注:|第\s*\d+\s*页|共\s*\d+\s*页/i.test(trimmed)) continue;
+
+            // 若当前行末尾是破折号且无有效小数百分比，直接作为 0% 跳过
+            if (/\s+-\s+-|\s+-\s*$/.test(trimmed) && !/\d+\.\d+/.test(trimmed)) continue;
+
+            // 若当前行无数字，尝试与下一行合并（适配工银瑞信等中英双语跨行折行排版），但下一行若为合计行则坚决不合并
+            let combined = trimmed;
+            if (i + 1 < lines.length && !/\d+\.\d+/.test(trimmed) && !/合计|总计|小计|Total|注：|注:/i.test(lines[i + 1])) {
+                combined = trimmed + ' ' + lines[i + 1].trim();
+            }
+
+            if (/\s+-\s+-|\s+-\s*$/.test(combined) && !/\d+\.\d+/.test(combined)) continue;
+
             for (const ind of CANONICAL_INDUSTRIES) {
-                if (line === ind || line.startsWith(ind)) {
-                    if (!foundInds.includes(ind)) foundInds.push(ind);
+                const idx = combined.indexOf(ind);
+                if (idx >= 0 && idx < 30) {
+                    const nums = combined.match(/(\d+\.\d{1,4})/g);
+                    if (nums && nums.length > 0) {
+                        const lastNum = parseFloat(nums[nums.length - 1]);
+                        if (!isNaN(lastNum) && lastNum > 0 && lastNum <= 100) {
+                            const norm = normalizeIndustry(ind);
+                            indMap.set(norm, (indMap.get(norm) || 0) + lastNum / 100);
+                        }
+                    }
                     break;
                 }
             }
         }
-
-        const allPcts = [];
-        for (const line of cleanLines) {
-            const matches = line.match(/\b([0-9]{1,2}\.[0-9]{2,4})\b/g);
-            if (matches) {
-                for (const m of matches) {
-                    const val = parseFloat(m);
-                    if (val > 0 && val < 100) allPcts.push(val);
-                }
-            }
-        }
-
-        let pctsToUse = allPcts;
-        if (allPcts.length > foundInds.length) {
-            pctsToUse = allPcts.slice(-foundInds.length);
-        }
-
-        if (foundInds.length > 0 && pctsToUse.length > 0) {
-            const count = Math.min(foundInds.length, pctsToUse.length);
-            const indMap = new Map();
-            for (let i = 0; i < count; i++) {
-                let name = foundInds[i];
-                if (name === '通信业务' || name === '电信服务') name = '通讯业务';
-                if (name === '非日常生活消费品') name = '非必需消费品';
-                if (name === '日常消费品') name = '必需消费品';
-                if (name === '原材料') name = '材料';
-                indMap.set(name, (indMap.get(name) || 0) + pctsToUse[i] / 100);
-            }
-            const industries = [];
-            for (const [name, pct] of indMap.entries()) {
-                industries.push({ name, pct });
-            }
-            result.industries = industries;
-        }
+        const iList = [];
+        for (const [name, pct] of indMap.entries()) iList.push({ name, pct });
+        if (iList.length > bestInds.length) bestInds = iList;
     }
+    result.industries = bestInds;
 
     return result;
 }
@@ -210,25 +223,36 @@ export async function runQuarterlyRefresh() {
                 const listJson = await listRes.json();
                 const latest = listJson.Data?.find(d => /季度报告|中期报告/.test(d.TITLE));
 
-                if (!latest) return;
+                let targetPdfPath = null;
+                if (latest) {
+                    const pdfPath = join(PDF_DIR, `${f.code}_${latest.ID}.pdf`);
+                    if (!fs.existsSync(pdfPath)) {
+                        try {
+                            const pdfUrl = `https://pdf.dfcfw.com/pdf/H2_${latest.ID}_1.pdf`;
+                            const pdfRes = await fetch(pdfUrl, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(8000) });
+                            if (pdfRes.ok) {
+                                const buf = Buffer.from(await pdfRes.arrayBuffer());
+                                fs.writeFileSync(pdfPath, buf);
+                                pdfCount++;
+                            }
+                        } catch {}
+                    }
+                    if (fs.existsSync(pdfPath)) targetPdfPath = pdfPath;
+                }
 
-                const pdfPath = join(PDF_DIR, `${f.code}_${latest.ID}.pdf`);
-
-                // 2. 官方 CDN 直拉 PDF 归档原件
-                if (!fs.existsSync(pdfPath)) {
-                    const pdfUrl = `https://pdf.dfcfw.com/pdf/H2_${latest.ID}_1.pdf`;
-                    const pdfRes = await fetch(pdfUrl, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(8000) });
-                    if (pdfRes.ok) {
-                        const buf = Buffer.from(await pdfRes.arrayBuffer());
-                        fs.writeFileSync(pdfPath, buf);
-                        pdfCount++;
+                // 兜底：若最新公告未下载成功，优先使用本地已归档的该基金历史季报/定期报告 PDF
+                if (!targetPdfPath) {
+                    const localFiles = fs.readdirSync(PDF_DIR).filter(p => p.startsWith(`${f.code}_`) && p.endsWith('.pdf'));
+                    if (localFiles.length > 0) {
+                        localFiles.sort().reverse();
+                        targetPdfPath = join(PDF_DIR, localFiles[0]);
                     }
                 }
 
-                if (!fs.existsSync(pdfPath)) return;
+                if (!targetPdfPath) return;
 
-                // 3. 本地原生提取并解析 PDF 黄金真值
-                const text = execSync(`pdftotext "${pdfPath}" -`, { encoding: 'utf8', timeout: 3000 });
+                // 3. 本地原生提取并解析 PDF 黄金真值（使用 -layout 保留表格行列对齐）
+                const text = execSync(`pdftotext -layout "${targetPdfPath}" -`, { encoding: 'utf8', timeout: 3000 });
                 const parsed = parseFullQuarterlyPdf(text);
 
                 if (parsed) {
@@ -253,11 +277,14 @@ export async function runQuarterlyRefresh() {
                         industryUpdated++;
                     }
 
-                    // 更新资产组合配置
+                    // 更新资产组合配置 (按 name / pct 结构)
                     if (parsed.assetAlloc) {
                         db.prepare('DELETE FROM asset_alloc WHERE code=?').run(f.code);
-                        db.prepare('INSERT INTO asset_alloc (code, report_date, stock_ratio, bond_ratio, cash_ratio, other_ratio) VALUES (?,?,?,?,?,?)')
-                            .run(f.code, today, parsed.assetAlloc.stock, parsed.assetAlloc.bond, parsed.assetAlloc.cash, parsed.assetAlloc.other);
+                        const insAsset = db.prepare('INSERT INTO asset_alloc (code, report_date, name, pct) VALUES (?,?,?,?)');
+                        if (parsed.assetAlloc.stock > 0) insAsset.run(f.code, today, '股票', parsed.assetAlloc.stock / 100);
+                        if (parsed.assetAlloc.cash > 0) insAsset.run(f.code, today, '现金', parsed.assetAlloc.cash / 100);
+                        if (parsed.assetAlloc.bond > 0) insAsset.run(f.code, today, '债券', parsed.assetAlloc.bond / 100);
+                        if (parsed.assetAlloc.other > 0) insAsset.run(f.code, today, '其他', parsed.assetAlloc.other / 100);
                         assetUpdated++;
                     }
                 }

@@ -25,22 +25,36 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: 'npm'
+
+      - name: Install System Dependencies (pdftotext)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils
 
       - name: Install Dependencies
         run: |
           npm install
 
-      - name: Run Daily Ingest & Quality Audit
+      - name: 1. Run Daily Fast Ingest (NAV & Purchase Limits)
         run: |
           node --experimental-sqlite backend/jobs/daily_fast_refresh.mjs
 
-      - name: Build & Verify Static Distribution
+      - name: 2. Run Daily Multi-Source Dual Verification (Tencent & Danjuan & PDF Limits)
+        run: |
+          node --experimental-sqlite backend/qa/dual_source_verifier.mjs --mode=daily
+
+      - name: 3. Run DataGuard Quality Gate
+        run: |
+          node --experimental-sqlite backend/qa/data_guard.mjs
+
+      - name: 4. Build & Verify Static Distribution
         run: |
           npm run build
 
-      - name: Commit & Push Updated Database & Static JSON
+      - name: 5. Commit & Push Updated Database & Static JSON
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add backend/data/fund.db* data/funds.json public/
-          git diff --quiet && git diff --staged --quiet || (git commit -m "chore(data): automated daily QDII fund data update" && git push)
+          git diff --quiet && git diff --staged --quiet || (git commit -m "chore(data): automated daily QDII fund data update [skip ci]" && git push)
