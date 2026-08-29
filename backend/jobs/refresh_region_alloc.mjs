@@ -69,11 +69,9 @@ export async function refreshOfficialCountryAlloc() {
     console.log(`[全库基金总数] ${allFunds.length} 只\n`);
 
     const isPassive = (f) => {
-        const s = (f.name + ' ' + (f.tracking_index || '') + ' ' + (f.benchmark || '')).toLowerCase();
         if (f.tracking_index && f.tracking_index.trim() !== '') return true;
-        if (/etf|联接|指数|标普|纳斯达克|纳指|道琼斯|日经|东证|恒生|dax|cac|富时|中韩半导体|越南|印度|巴西|商品|黄金|原油|白银|抗通胀|reit/.test(s) && !/精选|优选|成长|灵活配置|混合型|股票型|积极|主动|新兴市场/.test(f.name)) {
-            return true;
-        }
+        const name = f.name || '';
+        if (/etf|联接|指数/i.test(name)) return true;
         return false;
     };
 
@@ -95,10 +93,10 @@ export async function refreshOfficialCountryAlloc() {
         await Promise.all(batch.map(async (f) => {
             let countries = null;
             try {
-                const listUrl = `https://api.fund.eastmoney.com/f10/JJGG?fundcode=${f.code}&pageIndex=1&pageSize=5&type=3`;
+                const listUrl = `https://api.fund.eastmoney.com/f10/JJGG?fundcode=${f.code}&pageIndex=1&pageSize=20&type=0`;
                 const listRes = await fetch(listUrl, { headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://fundf10.eastmoney.com/' }, signal: AbortSignal.timeout(5000) });
                 const listJson = await listRes.json();
-                const latest = listJson.Data?.find(d => /季度报告|中期报告/.test(d.TITLE));
+                const latest = listJson.Data?.find(d => /季度报告|中期报告|半年度报告/.test(d.TITLE) && !/提示性公告/.test(d.TITLE));
 
                 if (latest) {
                     const pdfUrl = `https://pdf.dfcfw.com/pdf/H2_${latest.ID}_1.pdf`;
