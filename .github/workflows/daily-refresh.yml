@@ -50,6 +50,7 @@ jobs:
 
       - name: 4. Build & Verify Static Distribution
         run: |
+          node --experimental-sqlite backend/export_static.js
           npm run build
 
       - name: 5. Commit & Push Updated Database & Static JSON
