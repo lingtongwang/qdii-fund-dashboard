@@ -22,7 +22,7 @@ export function classify(fundOrName = '', type = '', regions = [], trackingIndex
 
     const idx = (trackingIndex || '').trim();
     bm = (benchmark || '').trim();
-    const isIndex = Boolean(idx && idx !== '--' && idx !== '---') || /指数|ETF|联接/.test(type + ' ' + name);
+    const isIndex = Boolean(idx && idx !== '--' && idx !== '---') || /指数|ETF|联接|等权重|标普|纳斯达克|纳指|道琼斯|日经|东证|中韩/.test(name) || /指数/.test(type);
 
     // =========================================================================
     // 维度 1：投资资产大类属性（非纯股票类一律归入【其他大类 other】）
@@ -41,7 +41,7 @@ export function classify(fundOrName = '', type = '', regions = [], trackingIndex
         return { tab: 'other', pill: 'QDII债券', basis: `资产属性(债券固收)` };
     }
     // 1.4 多元资产 FOF / 全球宏观配置 FOF（严格限定为全球宏观/多资产配置FOF，排除标普500、纳指等单指数/单赛道ETF联接型FOF）
-    const isSingleThemeOrIndexFof = /标普|标准普尔|纳斯达克|纳指|道琼斯|日经|东证|恒生|中韩|半导体|芯片|医药|生物|消费|越南|印度|德国|法国|s&p|nasdaq/i.test(name + ' ' + idx + ' ' + bm);
+    const isSingleThemeOrIndexFof = /标普|标准普尔|纳斯达克|纳指|道琼斯|日经|东证|恒生|中韩|半导体|芯片|医药|生物|消费|越南|印度|德国|法国|s&p|nasdaq/i.test(name + ' ' + idx);
     if (!isSingleThemeOrIndexFof && (type.includes('FOF') || name.includes('FOF') || name.includes('多元配置') || name.includes('聚享') || name.includes('全球策略') || name.includes('全球配置'))) {
         return { tab: 'other', pill: '多元资产FOF', basis: `资产属性(多元资产FOF)` };
     }
@@ -65,36 +65,36 @@ export function classify(fundOrName = '', type = '', regions = [], trackingIndex
     const pEurope = regMap['欧洲'] || regMap['大欧洲地区'] || 0;
 
     // =========================================================================
-    // 维度 3：指数型基金精准分类（跟踪指数为第一依据，基金名称与业绩基准为第二依据）
+    // 维度 3：指数型基金精准分类（仅针对指数基金：跟踪指数为第一依据，基金名称为第二依据）
     // =========================================================================
-    const targetIndexText = `${idx} ${name} ${bm}`;
-    if (isIndex || /标普|标准普尔|纳斯达克|纳指|道琼斯|日经|东证|恒生|中韩|s&p 500|nasdaq 100/i.test(targetIndexText)) {
+    if (isIndex) {
+        const indexText = `${idx} ${name}`;
         // 3.1 亚太单国别宽基
-        if (/日经|东证|nikkei|topix/i.test(targetIndexText)) return { tab: 'apac', pill: '日本', basis: `指数/标的→日本` };
-        if (/印度|india|nifty/i.test(targetIndexText)) return { tab: 'apac', pill: '印度', basis: `指数/标的→印度` };
-        if (/越南|vietnam/i.test(targetIndexText)) return { tab: 'apac', pill: '越南', basis: `指数/标的→越南` };
-        if (/东南亚|泛东南亚/i.test(targetIndexText)) return { tab: 'apac', pill: '东南亚', basis: `指数/标的→东南亚` };
-        if (/中韩/i.test(targetIndexText)) return { tab: 'apac', pill: '科技/半导体', basis: `指数/标的→中韩半导体` };
+        if (/日经|东证|nikkei|topix/i.test(indexText)) return { tab: 'apac', pill: '日本', basis: `指数/标的→日本` };
+        if (/印度|india|nifty/i.test(indexText)) return { tab: 'apac', pill: '印度', basis: `指数/标的→印度` };
+        if (/越南|vietnam/i.test(indexText)) return { tab: 'apac', pill: '越南', basis: `指数/标的→越南` };
+        if (/东南亚|泛东南亚/i.test(indexText)) return { tab: 'apac', pill: '东南亚', basis: `指数/标的→东南亚` };
+        if (/中韩/i.test(indexText)) return { tab: 'apac', pill: '科技/半导体', basis: `指数/标的→中韩半导体` };
 
         // 3.2 行业与主题指数（优先级高于宽基，防止标普信息科技、标普医疗保健被误归入标普宽基）
-        if (/生物科技|医药|医疗|健康|biotech|health|pharma/i.test(targetIndexText)) {
+        if (/生物科技|医药|医疗|健康|biotech|health|pharma/i.test(indexText)) {
             return { tab: 'us', pill: '生物医药', basis: `指数/标的→生物医药` };
         }
-        if (/消费|高端消费|汽车|新能源|consumer|auto/i.test(targetIndexText)) {
+        if (/消费|高端消费|汽车|新能源|consumer|auto/i.test(indexText)) {
             return { tab: 'us', pill: '消费/新能源', basis: `指数/标的→消费/新能源` };
         }
-        if (/科技|半导体|芯片|信息|互联网|数字经济|tech|semiconductor/i.test(targetIndexText)) {
+        if (/科技|半导体|芯片|信息|互联网|数字经济|tech|semiconductor/i.test(indexText)) {
             return { tab: 'us', pill: '科技/半导体', basis: `指数/标的→美股科技/半导体` };
         }
 
         // 3.3 美股纯宽基指数
-        if (/纳斯达克100|nasdaq 100|ndx/i.test(targetIndexText) || (/纳斯达克|nasdaq/i.test(targetIndexText) && !/科技|生物|医疗|消费|信息|芯片/.test(targetIndexText))) {
+        if (/纳斯达克100|nasdaq 100|ndx/i.test(indexText) || (/纳斯达克|nasdaq/i.test(indexText) && !/科技|生物|医疗|消费|信息|芯片/.test(indexText))) {
             return { tab: 'us', pill: '纳斯达克', basis: `指数/标的→纳斯达克100宽基` };
         }
-        if ((/标准普尔500|标普500|s&p 500|sp500|spx|标准普尔|标普100|s&p 100|usa 50|美国50|标普/i.test(targetIndexText)) && !/科技|信息|半导体|芯片|生物|医疗|医药|健康|消费|石油|天然气|能源/.test(targetIndexText)) {
+        if ((/标准普尔500|标普500|s&p 500|sp500|spx|标准普尔|标普100|s&p 100|usa 50|美国50|标普/i.test(indexText)) && !/科技|信息|半导体|芯片|生物|医疗|医药|健康|消费|石油|天然气|能源/.test(indexText)) {
             return { tab: 'us', pill: '标普', basis: `指数/标的→标普500宽基` };
         }
-        if (/道琼斯|dow jones/i.test(targetIndexText) && !/石油|消费|房地产|reit/.test(targetIndexText)) {
+        if (/道琼斯|dow jones/i.test(indexText) && !/石油|消费|房地产|reit/.test(indexText)) {
             return { tab: 'us', pill: '道琼斯', basis: `指数/标的→道琼斯宽基` };
         }
     }
