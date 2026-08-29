@@ -9,7 +9,7 @@
     "export": "node --experimental-sqlite backend/export_static.js",
     "refresh": "node --experimental-sqlite backend/jobs/daily_fast_refresh.mjs",
     "refresh:quarterly": "node --experimental-sqlite backend/jobs/quarterly_refresh.mjs",
-    "build": "node --experimental-sqlite backend/jobs/refresh_region_alloc.mjs && node --experimental-sqlite backend/qa/dual_source_verifier.mjs && node --experimental-sqlite backend/qa/data_guard.mjs && node --experimental-sqlite backend/export_static.js && mkdir -p public/data && cp index.html script.js style.css chart.umd.min.js .nojekyll public/ && cp -r data/funds.json public/data/"
+    "build": "node --experimental-sqlite backend/jobs/refresh_region_alloc.mjs && node --experimental-sqlite backend/jobs/mark_hk.mjs && node --experimental-sqlite backend/qa/dual_source_verifier.mjs && node --experimental-sqlite backend/qa/data_guard.mjs && node --experimental-sqlite backend/export_static.js && mkdir -p public/data && cp index.html script.js style.css chart.umd.min.js .nojekyll public/ && cp -r data/funds.json public/data/"
   },
   "dependencies": {
     "exceljs": "^4.4.0",

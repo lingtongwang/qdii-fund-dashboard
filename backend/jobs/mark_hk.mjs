@@ -18,11 +18,12 @@ import { getDb } from '../db/sqlite.js';
 const db = getDb();
 const RESET = process.argv.includes('--reset');
 
-// 离岸中国为主关键词（港股 + 中概；含中英文，大小写无关）
+// 离岸中国为主关键词（港股 + 中概 + 中国主题；含中英文，大小写无关）
 const HK_PATTERNS = [
     '香港', '恒生', '港股', '港股通', 'H股', '红筹', '大中华',
     '中概', '中国互联网', '中国互联', '海外中国', '中证海外',
-    'hang seng', 'hong kong', 'h-share', 'hsbc', // hsbc 极少，留作兜底
+    '中国世纪', '中国生物医药', '中国中小盘', '中国新兴经济', '中国优势', '中国概念', '中国价值',
+    '中国海外', '中华', 'hang seng', 'hong kong', 'h-share', 'hsbc', 'greater china',
 ];
 function isHK(name = '') {
     const t = name.toLowerCase();
@@ -39,12 +40,19 @@ if (RESET) {
     process.exit(0);
 }
 
-// 1) 收集所有港股为主的 code（全量标记，但只对可见工作集产生效果）
+// 1) 收集所有港股/中国资产为主的 code：
+//   - 规则 A: 基金名称含港股/中国概念关键词
+//   - 规则 B: 官方季报真实持仓 (中国大陆 + 中国香港) 占比 >= 50%
 const all = db.prepare('SELECT code, name FROM funds').all();
-const hkCodes = all.filter(f => isHK(f.name)).map(f => f.code);
+const chinaAllocCodes = new Set(
+    db.prepare("SELECT code FROM region_alloc WHERE name IN ('中国大陆', '中国香港', '中国') GROUP BY code HAVING sum(pct) >= 0.50").all().map(r => r.code)
+);
+
+const hkCodes = all.filter(f => isHK(f.name) || chinaAllocCodes.has(f.code)).map(f => f.code);
 
 // 2) 幂等写入 region_excluded=1
 db.exec('BEGIN');
+db.prepare('UPDATE funds SET region_excluded=0').run();
 const upd = db.prepare('UPDATE funds SET region_excluded=1 WHERE code=?');
 for (const code of hkCodes) upd.run(code);
 db.exec('COMMIT');
