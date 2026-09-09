@@ -96,4 +96,4 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add backend/data/fund.db* data/funds.json public/
-          git diff --quiet && git diff --staged --quiet || (git commit -m "chore(data): quarterly official PDF & industry truth refresh [skip ci]" && git push)
+          git diff --quiet && git diff --staged --quiet || (git commit -m "chore(data): quarterly official PDF & industry truth refresh" && git push)

@@ -194,10 +194,14 @@ async function fetchIndividualFund(code) {
         if (pdfLimit) limit = pdfLimit;
     }
 
-    // 若依然无法获取具体限额数字（如全额暂停但前端残留限大额），自动纠正为暂停申购以符合业务不变式
+    // 若依然无法获取具体限额数字，优先保留现有已核验限额，避免网络抖动或临时文本缺失导致误抹除
     if (purchaseStatus === '暂停大额申购' && (!limit || limit <= 0)) {
-        purchaseStatus = '暂停申购';
-        limit = null;
+        if (existing && existing.limit_amount > 0) {
+            limit = existing.limit_amount;
+        } else {
+            purchaseStatus = '暂停申购';
+            limit = null;
+        }
     }
 
     // 4. 抓取 lsjz 官方最新交易日净值
