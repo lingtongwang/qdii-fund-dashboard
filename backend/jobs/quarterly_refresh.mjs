@@ -109,11 +109,13 @@ export function parseFullQuarterlyPdf(pdfText) {
     // --- ② 各个国家（地区）证券市场投资分布 (Section 5.2 / 7.2 / 8.2 / 9.2) ---
     const countryMatches = [...pdfText.matchAll(/(?:在各个国家（地区）证券市场的股票及存托凭证投资分布|各个国家（地区）证券市场分布的权益投资|按国家（地区）证券市场分布的权益投资|各个国家（地区）证券市场的股票投资分布|按国家（地区）证券市场分布的股票投资|在各个国家（地区）证券市场的权益投资分布|期末在各个国家（地区）证券市场的权益投资分布)/g)];
     let bestCountries = [];
+    let bestCSum = 0;
     for (const m of countryMatches) {
         if (m.index < 800) continue;
-        const seg = pdfText.slice(m.index, m.index + 2000);
+        // 扩大扫描窗口至 12000 字符，防止跨页或大型国家表格截断
+        const seg = pdfText.slice(m.index, m.index + 12000);
         const endMatch = seg.match(/(?:\n\s*[5-9]\.3|\n\s*报告期末按行业分类|\n\s*按行业分类|\n\s*期末按行业分类)/i);
-        const tableText = endMatch ? seg.slice(0, endMatch.index) : seg.slice(0, 1200);
+        const tableText = endMatch ? seg.slice(0, endMatch.index) : seg.slice(0, 3000);
 
         const lines = tableText.split('\n');
         const countryMap = new Map();
@@ -139,18 +141,26 @@ export function parseFullQuarterlyPdf(pdfText) {
         }
         const cList = [];
         for (const [country, pct] of countryMap.entries()) cList.push({ country, pct });
-        if (cList.length > bestCountries.length) bestCountries = cList;
+        const cSum = cList.reduce((a, b) => a + b.pct, 0);
+        if (cSum >= 0.15 && cSum <= 1.8) {
+            if (cSum > bestCSum + 0.05 || (Math.abs(cSum - bestCSum) <= 0.05 && cList.length > bestCountries.length)) {
+                bestCSum = cSum;
+                bestCountries = cList;
+            }
+        }
     }
     result.countries = bestCountries;
 
     // --- ③ 行业分类投资组合 (Section 5.3 / 7.3 / 8.3 / 9.3) ---
     const indMatches = [...pdfText.matchAll(/(?:按行业分类的股票及存托凭证投资组合|按行业分类的股票投资组合|按行业分类的权益投资组合|期末按行业分类的权益投资组合|期末指数投资按行业分类|报告期末按行业分类)/g)];
     let bestInds = [];
+    let bestIndSum = 0;
     for (const m of indMatches) {
         if (m.index < 800) continue;
-        const seg = pdfText.slice(m.index, m.index + 2500);
+        // 扩大扫描窗口至 16000 字符，确保完整容纳 60+ 页中报/年报跨页大表（涵盖指数投资 + 积极投资双子表）
+        const seg = pdfText.slice(m.index, m.index + 16000);
         const endMatch = seg.match(/(?:\n\s*[5-9]\.4|\n\s*前十名|\n\s*按公允价值排序|\n\s*7\.4|\n\s*8\.4|\n\s*9\.4)/i);
-        const tableText = endMatch ? seg.slice(0, endMatch.index) : seg.slice(0, 1500);
+        const tableText = endMatch ? seg.slice(0, endMatch.index) : seg.slice(0, 4000);
 
         const lines = tableText.split('\n');
         const indMap = new Map();
@@ -187,7 +197,14 @@ export function parseFullQuarterlyPdf(pdfText) {
         }
         const iList = [];
         for (const [name, pct] of indMap.entries()) iList.push({ name, pct });
-        if (iList.length > bestInds.length) bestInds = iList;
+        const sum = iList.reduce((a, b) => a + b.pct, 0);
+        if (sum >= 0.15 && sum <= 1.5) {
+            // 优先选择覆盖资金体量更全、或同等体量下行业分类覆盖更全的解析结果（防止误取积极投资局部微分子表）
+            if (sum > bestIndSum + 0.05 || (Math.abs(sum - bestIndSum) <= 0.05 && iList.length > bestInds.length)) {
+                bestIndSum = sum;
+                bestInds = iList;
+            }
+        }
     }
     result.industries = bestInds;
 
@@ -252,7 +269,7 @@ export async function runQuarterlyRefresh() {
                 if (!targetPdfPath) return;
 
                 // 3. 本地原生提取并解析 PDF 黄金真值（使用 -layout 保留表格行列对齐）
-                const text = execSync(`pdftotext -layout "${targetPdfPath}" -`, { encoding: 'utf8', timeout: 3000 });
+                const text = execSync(`pdftotext -layout "${targetPdfPath}" -`, { encoding: 'utf8', timeout: 10000 });
                 const parsed = parseFullQuarterlyPdf(text);
 
                 if (parsed) {
@@ -270,11 +287,14 @@ export async function runQuarterlyRefresh() {
 
                     // 更新行业配置
                     if (parsed.industries && parsed.industries.length > 0) {
-                        db.prepare('DELETE FROM industry_alloc WHERE code=?').run(f.code);
-                        for (const ind of parsed.industries) {
-                            insIndustry.run(f.code, today, ind.name, ind.pct);
+                        const sum = parsed.industries.reduce((a, b) => a + b.pct, 0);
+                        if (sum >= 0.15 && sum <= 1.8) {
+                            db.prepare('DELETE FROM industry_alloc WHERE code=?').run(f.code);
+                            for (const ind of parsed.industries) {
+                                insIndustry.run(f.code, today, ind.name, ind.pct);
+                            }
+                            industryUpdated++;
                         }
-                        industryUpdated++;
                     }
 
                     // 更新资产组合配置 (按 name / pct 结构)

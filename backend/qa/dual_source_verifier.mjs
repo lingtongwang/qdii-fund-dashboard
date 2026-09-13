@@ -157,13 +157,35 @@ async function fetchOfficialStructuredIndustry(code) {
         const latestQ = json.Data?.QuarterInfos?.[0];
         if (!latestQ || !latestQ.HYPZInfo) return null;
 
+        const indMap = new Map();
+        for (const h of latestQ.HYPZInfo) {
+            const rawName = h.HYMC || '';
+            const pct = parseFloat(h.ZJZBL) / 100;
+            if (isNaN(pct) || pct <= 0) continue;
+            let normName = rawName;
+            if (/非日常|可选|非必需/.test(rawName)) normName = '非必需消费品';
+            else if (/日常|主要|必需/.test(rawName)) normName = '必需消费品';
+            else if (/通信|电信|通讯/.test(rawName)) normName = '通讯业务';
+            else if (/科技|信息/.test(rawName)) normName = '信息技术';
+            else if (/医药|医疗|保健/.test(rawName)) normName = '医疗保健';
+            else if (/金融/.test(rawName)) normName = '金融';
+            else if (/工业|制造/.test(rawName)) normName = '工业';
+            else if (/材料|原材料/.test(rawName)) normName = '材料';
+            else if (/能源|石油/.test(rawName)) normName = '能源';
+            else if (/公用/.test(rawName)) normName = '公用事业';
+            else if (/房地产|不动产/.test(rawName)) normName = '房地产';
+
+            indMap.set(normName, (indMap.get(normName) || 0) + pct);
+        }
+
+        const sortedInds = Array.from(indMap.entries())
+            .map(([name, pct]) => ({ name, pct }))
+            .sort((a, b) => b.pct - a.pct);
+
         return {
             code,
             date: latestQ.HYPZInfo[0]?.FSRQ || '',
-            industries: latestQ.HYPZInfo.map(h => ({
-                name: h.HYMC,
-                pct: parseFloat(h.ZJZBL) / 100
-            }))
+            industries: sortedInds
         };
     } catch {
         return null;
