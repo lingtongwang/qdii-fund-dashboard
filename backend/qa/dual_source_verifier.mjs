@@ -84,9 +84,11 @@ async function fetchDanjuanTradeStatus(code) {
         return {
             code,
             canBuy: d.can_buy,
+            agentSell: d.agent_sell !== false,
             declareStatus: d.declare_status,
             buttonDoc: d.special_trade_detail?.button_doc || '',
-            barDoc: d.special_trade_detail?.bar_doc || ''
+            barDoc: d.special_trade_detail?.bar_doc || '',
+            tradeReason: d.trade_reason?.content || ''
         };
     } catch (e) {
         return null;
@@ -284,17 +286,21 @@ for (const f of funds) {
     // ----------------- ② 雪球/蛋卷：申购交易状态核验 -----------------
     const dj = danjuanResults.get(f.code);
     if (dj && dj.canBuy !== undefined) {
-        const isSuspendedInDj = dj.canBuy === false || dj.buttonDoc.includes('暂停买入') || dj.barDoc.includes('暂停买入');
-        const isSuspendedInDb = f.purchase_status === '暂停申购';
+        // 排除蛋卷自身未代销该基金（如新发未准入、仅直销或特定代销渠道）的误判
+        const isNotSelling = dj.agentSell === false || /本平台暂不销售|暂未开放销售/.test(dj.buttonDoc + dj.barDoc + dj.tradeReason);
+        if (!isNotSelling) {
+            const isSuspendedInDj = dj.canBuy === false || dj.buttonDoc.includes('暂停买入') || dj.barDoc.includes('暂停买入');
+            const isSuspendedInDb = f.purchase_status === '暂停申购';
 
-        // 若雪球明确显示「暂停买入」，但数据库却标为「开放申购」
-        if (isSuspendedInDj && f.purchase_status === '开放申购') {
-            discrepancies.push({
-                code: f.code,
-                name: f.name,
-                reason: `交易状态背对背冲突！信源C(雪球/蛋卷)明确为【暂停买入】，数据库误标为【${f.purchase_status}】`
-            });
-            continue;
+            // 若雪球代销且明确显示「暂停买入」，但数据库却标为「开放申购」
+            if (isSuspendedInDj && f.purchase_status === '开放申购') {
+                discrepancies.push({
+                    code: f.code,
+                    name: f.name,
+                    reason: `交易状态背对背冲突！信源C(雪球/蛋卷)明确为【暂停买入】，数据库误标为【${f.purchase_status}】`
+                });
+                continue;
+            }
         }
     }
 
